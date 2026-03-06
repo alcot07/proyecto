@@ -1,6 +1,7 @@
 import streamlit as st
 import pdfplumber
 import pandas as pd
+import openpyxl
 import re
 import io
 import traceback
