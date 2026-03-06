@@ -12,7 +12,7 @@ import sqlite3
 import datetime
 from pathlib import Path
 from PIL import Image
-from datetime import datetime as dt, timezone, timedelta
+from datetime import datetime as dt
 
 # ============================================================================
 # RUTAS
@@ -69,9 +69,7 @@ def verificar_credenciales(username: str, password: str) -> bool:
 # ============================================================================
 # SESSION STATE
 # ============================================================================
-defaults = {
-    'autenticado': False, 'usuario_actual': None,
-}
+defaults = {'autenticado': False, 'usuario_actual': None}
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -153,6 +151,24 @@ footer { visibility: hidden; }
     box-shadow: 0 4px 24px rgba(11,110,60,0.13);
     border-top: 5px solid #0b6e3c;
 }
+.revision-card {
+    background: #f8fffe;
+    border: 1px solid #c8e6d4;
+    border-left: 4px solid #0b6e3c;
+    border-radius: 8px;
+    padding: 0.8rem 1rem;
+    margin-bottom: 0.5rem;
+}
+.revision-nombre {
+    font-weight: 700;
+    color: #0b6e3c;
+    font-size: 1rem;
+}
+.revision-meta {
+    font-size: 0.8rem;
+    color: #666;
+    margin-top: 0.2rem;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -183,7 +199,7 @@ def mostrar_login():
             if not username.strip():    st.error("Introduce tu usuario.")
             elif not password:          st.error("Introduce tu contraseña.")
             elif verificar_credenciales(username.strip(), password):
-                st.session_state.autenticado   = True
+                st.session_state.autenticado    = True
                 st.session_state.usuario_actual = username.strip()
                 st.rerun()
             else: st.error("❌ Usuario o contraseña incorrectos.")
@@ -202,6 +218,68 @@ def _banner():
             st.image(str(HEADER_MAIN_FILE), width='stretch')
     except Exception:
         pass
+
+# ============================================================================
+# REVISIONES — helpers
+# ============================================================================
+
+def _nombre_revision_por_defecto() -> str:
+    return dt.now().strftime("%H:%M - %d/%m/%Y")
+
+def _slug(nombre: str) -> str:
+    """Convierte nombre a nombre de carpeta seguro."""
+    return re.sub(r'[<>:"/\\|?*\s]', '_', nombre.strip())
+
+def listar_revisiones() -> list:
+    """Devuelve lista de carpetas de revisiones ordenadas por fecha de modificación."""
+    return sorted(
+        [r for r in CARPETA_REVISIONES.iterdir() if r.is_dir()],
+        key=lambda r: r.stat().st_mtime, reverse=True
+    )
+
+def crear_revision(nombre: str, archivos: list) -> Path:
+    """
+    Crea una carpeta de revisión y guarda los archivos.
+    archivos: lista de (nombre_archivo, bytes)
+    """
+    slug = _slug(nombre)
+    carpeta = CARPETA_REVISIONES / slug
+    carpeta.mkdir(exist_ok=True)
+    # Guardamos el nombre legible en un fichero metadata
+    meta = {"nombre": nombre, "creada": dt.now().strftime("%H:%M - %d/%m/%Y")}
+    with open(carpeta / "_meta.json", "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False)
+    for nom_arch, contenido in archivos:
+        with open(carpeta / nom_arch, "wb") as f:
+            f.write(contenido)
+    return carpeta
+
+def leer_meta(carpeta: Path) -> dict:
+    meta_file = carpeta / "_meta.json"
+    if meta_file.exists():
+        try:
+            with open(meta_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    # fallback: usar nombre de carpeta y fecha de modificación
+    mtime = dt.fromtimestamp(carpeta.stat().st_mtime)
+    return {"nombre": carpeta.name.replace("_", " "), "creada": mtime.strftime("%H:%M - %d/%m/%Y")}
+
+def archivos_de_revision(carpeta: Path) -> list:
+    """Devuelve lista de paths de archivos (pdf/csv) en la carpeta."""
+    return [p for p in sorted(carpeta.iterdir()) if p.suffix.lower() in (".pdf", ".csv") and p.name != "_meta.json"]
+
+def eliminar_revision(carpeta: Path):
+    shutil.rmtree(carpeta)
+
+def renombrar_revision(carpeta: Path, nuevo_nombre: str) -> Path:
+    nueva_carpeta = CARPETA_REVISIONES / _slug(nuevo_nombre)
+    carpeta.rename(nueva_carpeta)
+    meta = {"nombre": nuevo_nombre, "creada": leer_meta(carpeta).get("creada", "")}
+    with open(nueva_carpeta / "_meta.json", "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False)
+    return nueva_carpeta
 
 # ============================================================================
 # BASE DE DATOS ALMACÉN
@@ -244,6 +322,8 @@ def init_db():
     conn.commit()
     _load_demo(conn)
     conn.close()
+
+# ── Helpers BD ──────────────────────────────────────────────────────────────
 
 def _nh(c):
     s = str(c).strip().lower()
@@ -507,19 +587,6 @@ def extraer_dotacion(linea):
     if len(partes)>2 and (partes[-1]=='N' or partes[-2]=='N'): return "NO DOTADA"
     return "NO DOTADA"
 
-def extraer_fecha_pdf(archivo_bytes, nombre_archivo):
-    try:
-        with pdfplumber.open(io.BytesIO(archivo_bytes)) as pdf:
-            if pdf.pages:
-                texto = pdf.pages[0].extract_text()
-                if texto:
-                    for linea in texto.split('\n')[:10]:
-                        if 'Fecha' in linea or 'fecha' in linea:
-                            m = re.search(r'(\d{2}/\d{2}/\d{4})', linea)
-                            if m: return m.group(1)
-    except: pass
-    return None
-
 def procesar_pdf(archivo_bytes, nombre_archivo):
     registros = []
     try:
@@ -528,11 +595,11 @@ def procesar_pdf(archivo_bytes, nombre_archivo):
             todas_lineas = []
             paginas_sin_texto = []
             with st.spinner(f'📄 Procesando {nombre_archivo} ({num_pag} páginas)...'):
-                for np, pagina in enumerate(pdf.pages, 1):
+                for np_idx, pagina in enumerate(pdf.pages, 1):
                     try:
                         texto = pagina.extract_text()
                         if texto: todas_lineas.extend(texto.split('\n'))
-                        else: paginas_sin_texto.append(np)
+                        else: paginas_sin_texto.append(np_idx)
                     except: pass
                 if paginas_sin_texto:
                     st.warning(f"⚠️ {len(paginas_sin_texto)} páginas sin texto en {nombre_archivo}")
@@ -599,36 +666,6 @@ def procesar_pdf(archivo_bytes, nombre_archivo):
         with st.expander("🔍 Detalles"): st.code(traceback.format_exc())
         return pd.DataFrame()
 
-def ordenar_archivos_por_fecha(archivos_lista):
-    con_fecha = []
-    for nombre, ab in archivos_lista:
-        fecha_str = extraer_fecha_pdf(ab, nombre)
-        if fecha_str:
-            try:    fecha_obj = dt.strptime(fecha_str,'%d/%m/%Y')
-            except: fecha_obj = dt.min
-        else:
-            fecha_str = "Sin fecha"; fecha_obj = dt.min
-        con_fecha.append((nombre, ab, fecha_obj, fecha_str))
-    con_fecha.sort(key=lambda x: x[2])
-    return [(n, b, f) for n, b, _, f in con_fecha]
-
-def enriquecer_dataframe_con_nombres(df_sin, df_con):
-    if df_con.empty or df_sin.empty: return df_sin
-    try:
-        df_r = df_sin.copy()
-        validos = df_con[df_con['Ocupante']!='LIBRE'].copy()
-        if validos.empty: return df_r
-        mapeo = dict(zip(validos['Código'], validos['Ocupante']))
-        for idx, row in df_r.iterrows():
-            if row['Código'] in mapeo and row['Ocupante']=='LIBRE':
-                df_r.at[idx,'Ocupante']     = mapeo[row['Código']]
-                df_r.at[idx,'Estado_Plaza'] = 'OCUPADA'
-        st.info(f"✅ {len(mapeo)} ocupantes relacionados")
-        return df_r
-    except Exception as e:
-        st.warning(f"⚠️ No se pudo enriquecer: {e}")
-        return df_sin
-
 # ============================================================================
 # PÁGINA 1 — EXISTENCIAS
 # ============================================================================
@@ -658,7 +695,7 @@ def pagina_existencias():
     with fc3: f_texto = st.text_input("🔍 Buscar",     placeholder="Código o nombre…", key="ex_ftxt")
 
     df_view = df_arts.copy()
-    if f_tipo:             df_view = df_view[df_view['type'].isin(f_tipo)]
+    if f_tipo:                 df_view = df_view[df_view['type'].isin(f_tipo)]
     if "Con stock" in f_stock: df_view = df_view[df_view['current_stock'] > 0]
     if "Sin stock" in f_stock: df_view = df_view[df_view['current_stock'] <= 0]
     if f_texto.strip():
@@ -1079,82 +1116,263 @@ def pagina_salidas():
     conn.close()
 
 # ============================================================================
-# PÁGINA 5 — GESTIÓN DE USUARIOS
+# PÁGINA 5 — CONFIGURACIÓN (incluye gestión de revisiones)
 # ============================================================================
 
-def pagina_gestion_usuarios():
+def pagina_configuracion():
     _banner()
-    st.title("⚙️ Gestión de Usuarios")
-    st.markdown("---")
+    st.title("⚙️ Configuración")
 
-    usuarios_actuales = cargar_usuarios()
+    tab_rev, tab_imp, tab_usr = st.tabs(["📁 Revisiones", "📥 Importación de Datos", "👥 Gestión de Usuarios"])
 
-    st.markdown("### 👥 Usuarios registrados")
-    for uname, udata in list(usuarios_actuales.items()):
-        cu, cn, cr, cd = st.columns([2,2,1,1])
-        with cu: st.markdown(f"**`{uname}`**")
-        with cn: st.markdown(udata.get('nombre','—'))
-        with cr:
-            icon = "🔑" if udata.get('rol')=='admin' else "👤"
-            st.markdown(f"{icon} {udata.get('rol','usuario')}")
-        with cd:
-            admins = [u for u,d in usuarios_actuales.items() if d.get('rol')=='admin']
-            puede  = not (uname==st.session_state.usuario_actual or
-                          (udata.get('rol')=='admin' and len(admins)<=1))
-            if puede:
-                if st.button("🗑️", key=f"del_u_{uname}", help=f"Eliminar {uname}"):
-                    del usuarios_actuales[uname]
-                    guardar_usuarios(usuarios_actuales)
-                    st.success(f"Usuario **{uname}** eliminado."); st.rerun()
-            else: st.markdown("—")
+    # ── TAB 1: REVISIONES ────────────────────────────────────────────
+    with tab_rev:
+        st.markdown("### 📁 Revisiones guardadas")
+        st.markdown("Sube archivos PDF o CSV y guárdalos como una revisión con nombre y fecha automáticos.")
 
-    st.markdown("---")
-    st.markdown("### 🔑 Cambiar contraseña")
-    ca, cb = st.columns(2)
-    with ca: usr_c = st.selectbox("Usuario", options=list(usuarios_actuales.keys()), key="c_usr")
-    with cb: np1   = st.text_input("Nueva contraseña", type="password", key="np1")
-    np2 = st.text_input("Confirmar contraseña", type="password", key="np2")
-    if st.button("💾 Guardar contraseña", use_container_width=True):
-        if not np1:      st.error("La contraseña no puede estar vacía.")
-        elif np1!=np2:   st.error("Las contraseñas no coinciden.")
-        elif len(np1)<6: st.error("Mínimo 6 caracteres.")
+        # Uploader en la parte superior
+        archivos_subidos = st.file_uploader(
+            "📎 Arrastra aquí tus archivos PDF o CSV",
+            type=["pdf", "csv"],
+            accept_multiple_files=True,
+            key="rev_uploader"
+        )
+
+        col_nombre, col_btn = st.columns([3, 1])
+        with col_nombre:
+            nombre_rev = st.text_input(
+                "Nombre de la revisión",
+                value=_nombre_revision_por_defecto(),
+                key="rev_nombre"
+            )
+        with col_btn:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("💾 Guardar revisión", key="btn_guardar_rev", use_container_width=True):
+                if not archivos_subidos:
+                    st.warning("⚠️ Sube al menos un archivo antes de guardar.")
+                elif not nombre_rev.strip():
+                    st.error("El nombre no puede estar vacío.")
+                else:
+                    pares = [(f.name, f.read()) for f in archivos_subidos]
+                    crear_revision(nombre_rev.strip(), pares)
+                    st.success(f"✅ Revisión **{nombre_rev}** guardada con {len(pares)} archivo(s).")
+                    st.rerun()
+
+        st.markdown("---")
+
+        # Lista de revisiones existentes
+        revisiones = listar_revisiones()
+        if not revisiones:
+            st.info("No hay revisiones guardadas aún.")
         else:
-            usuarios_actuales[usr_c]['password_hash'] = hash_password(np1)
-            guardar_usuarios(usuarios_actuales)
-            st.success(f"✅ Contraseña de **{usr_c}** actualizada.")
+            st.markdown(f"**{len(revisiones)} revisión(es) guardada(s):**")
+            for carpeta in revisiones:
+                meta    = leer_meta(carpeta)
+                archivos = archivos_de_revision(carpeta)
+                n_archs  = len(archivos)
 
-    st.markdown("---")
-    st.markdown("### ➕ Añadir nuevo usuario")
-    c1, c2 = st.columns(2)
-    with c1:
-        nu_user = st.text_input("Nombre de usuario", placeholder="ej: usuario1", key="nu_user")
-        nu_name = st.text_input("Nombre completo",   placeholder="ej: Ana Pérez",  key="nu_name")
-    with c2:
-        nu_pass = st.text_input("Contraseña", type="password", key="nu_pass")
-        nu_rol  = st.selectbox("Rol", options=["usuario","admin"], key="nu_rol")
-    if st.button("➕ Crear usuario", use_container_width=True):
-        nu = nu_user.strip()
-        if not nu:                                      st.error("El nombre no puede estar vacío.")
-        elif nu in usuarios_actuales:                   st.error(f"El usuario **{nu}** ya existe.")
-        elif not nu_pass:                               st.error("La contraseña no puede estar vacía.")
-        elif len(nu_pass)<6:                            st.error("Mínimo 6 caracteres.")
-        elif not re.match(r'^[a-zA-Z0-9_\-\.]+$', nu): st.error("Solo letras, números, guiones y puntos.")
-        else:
-            usuarios_actuales[nu] = {
-                "password_hash": hash_password(nu_pass),
-                "nombre": nu_name.strip() or nu,
-                "rol": nu_rol
-            }
-            guardar_usuarios(usuarios_actuales)
-            st.success(f"✅ Usuario **{nu}** creado."); st.rerun()
+                with st.container():
+                    st.markdown(f"""
+                    <div class="revision-card">
+                        <div class="revision-nombre">📁 {meta['nombre']}</div>
+                        <div class="revision-meta">🕐 Creada: {meta['creada']} &nbsp;|&nbsp; 📄 {n_archs} archivo(s)</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
+
+                    with c1:
+                        # Mostrar archivos de la revisión
+                        if archivos:
+                            nombres_arch = ", ".join(p.name for p in archivos)
+                            st.caption(f"📄 {nombres_arch}")
+
+                    with c2:
+                        # Renombrar
+                        nuevo_nom = st.text_input("", placeholder="Nuevo nombre…",
+                                                  key=f"ren_{carpeta.name}",
+                                                  label_visibility="collapsed")
+                    with c3:
+                        if st.button("✏️ Renombrar", key=f"btn_ren_{carpeta.name}"):
+                            if nuevo_nom.strip():
+                                renombrar_revision(carpeta, nuevo_nom.strip())
+                                st.success("✅ Renombrada."); st.rerun()
+                            else:
+                                st.warning("Escribe el nuevo nombre.")
+                    with c4:
+                        if st.button("🗑️ Eliminar", key=f"btn_del_{carpeta.name}"):
+                            eliminar_revision(carpeta)
+                            st.success("🗑️ Revisión eliminada."); st.rerun()
+
+                    # Añadir más archivos a revisión existente
+                    with st.expander(f"➕ Añadir archivos a esta revisión", expanded=False):
+                        extra = st.file_uploader(
+                            "Arrastra PDF o CSV",
+                            type=["pdf","csv"],
+                            accept_multiple_files=True,
+                            key=f"extra_{carpeta.name}"
+                        )
+                        if st.button("Añadir a revisión", key=f"btn_add_{carpeta.name}"):
+                            if extra:
+                                for f in extra:
+                                    dest = carpeta / f.name
+                                    with open(dest, "wb") as out:
+                                        out.write(f.read())
+                                st.success(f"✅ {len(extra)} archivo(s) añadido(s)."); st.rerun()
+                            else:
+                                st.warning("Selecciona al menos un archivo.")
+
+                st.markdown("<div style='margin-bottom:0.5rem'></div>", unsafe_allow_html=True)
+
+    # ── TAB 2: IMPORTACIÓN DE DATOS (Excel almacén) ──────────────────
+    with tab_imp:
+        st.markdown("### 📥 Importación de Datos")
+        st.markdown("Sube un archivo Excel (.xlsx) con las hojas: Existencias, Clientes, Proveedores, Entradas, Salidas.")
+        u = st.file_uploader("Subir archivo Excel (.xlsx)", type=["xlsx"], key="imp_xlsx")
+        if u and st.button("Procesar Archivo", key="btn_import"):
+            with st.spinner("Procesando..."):
+                conn = get_db()
+                try:
+                    for tabla in ["articles","clients","providers","stock_entries","stock_exits","demo_loaded"]:
+                        conn.execute(f"DELETE FROM {tabla}")
+                    conn.commit()
+                    xls = pd.read_excel(u, sheet_name=None)
+                    results = {"Existencias":0,"Clientes":0,"Proveedores":0,"Entradas":0,"Salidas":0}
+
+                    sn = next((s for s in xls if "existencia" in s.lower()), None)
+                    if sn:
+                        df = xls[sn]; df.columns=[_nh(c) for c in df.columns]
+                        for _,row in df.iterrows():
+                            code=_sc(row.get("codigo",""))
+                            if not code: continue
+                            ini=_ff(row.get("existencias iniciales",0)); ent=_ff(row.get("entradas",0)); sal=_ff(row.get("salidas",0))
+                            try:
+                                conn.execute("INSERT OR IGNORE INTO articles (code,name,type,initial_stock,entries,exits,current_stock) VALUES (?,?,?,?,?,?,?)",
+                                             (code,row.get("nombre del articulo"),_classify(code),ini,ent,sal,ini+ent-sal))
+                                results["Existencias"]+=1
+                            except: pass
+
+                    for sheet_key, table, rkey in [("cliente","clients","Clientes"),("proveedor","providers","Proveedores")]:
+                        sn=next((s for s in xls if sheet_key in s.lower()),None)
+                        if sn:
+                            df=xls[sn]; df.columns=[_nh(c) for c in df.columns]
+                            for _,row in df.iterrows():
+                                code=_sc(row.get("codigo",""))
+                                if not code: continue
+                                try:
+                                    conn.execute(f"INSERT OR IGNORE INTO {table} (code,fiscal_name,name,surname,nif,phone,email,address,city,province,zip_code) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                                                 (code,row.get("nombre fiscal"),row.get("nombre"),row.get("apellidos"),row.get("nif/cif"),row.get("telefono"),row.get("e-mail"),row.get("direccion"),row.get("poblacion"),row.get("provincia"),_sc(row.get("codigo postal",""))))
+                                    results[rkey]+=1
+                                except: pass
+
+                    sn=next((s for s in xls if "entrada" in s.lower()),None)
+                    if sn:
+                        df=xls[sn]; df.columns=[_nh(c) for c in df.columns]
+                        for _,row in df.iterrows():
+                            code=_sc(row.get("codigo",""))
+                            if not code: continue
+                            try:
+                                conn.execute("INSERT OR IGNORE INTO stock_entries (entry_code,date,provider_code,provider_name,article_code,article_name,quantity,last_modified_by) VALUES (?,?,?,?,?,?,?,?)",
+                                             (code,_fd(row.get("fecha")),_sc(row.get("proveedor (codigo)","")),row.get("proveedor (nombre)"),_sc(row.get("articulo (codigo)","")),row.get("articulo (nombre)"),_ff(row.get("cantidad",0)),"import"))
+                                results["Entradas"]+=1
+                            except: pass
+
+                    sn=next((s for s in xls if "salida" in s.lower()),None)
+                    if sn:
+                        df=xls[sn]; df.columns=[_nh(c) for c in df.columns]
+                        for _,row in df.iterrows():
+                            code=_sc(row.get("codigo",""))
+                            if not code: continue
+                            try:
+                                conn.execute("INSERT OR IGNORE INTO stock_exits (exit_code,date,client_code,client_name,article_code,article_name,quantity,price,delivered_to,last_modified_by) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                                             (code,_fd(row.get("fecha")),_sc(row.get("cliente (codigo)","")),row.get("cliente (nombre)"),_sc(row.get("articulo (codigo)","")),row.get("articulo (nombre)"),_ff(row.get("cantidad",0)),row.get("precio"),row.get("entregado a"),"import"))
+                                results["Salidas"]+=1
+                            except: pass
+
+                    conn.commit()
+                    conn.execute("INSERT INTO demo_loaded (id) VALUES (1)")
+                    conn.commit()
+                    st.success("✅ Importación completada.")
+                    st.json(results)
+                    _clear_cache()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+                finally:
+                    conn.close()
+
+    # ── TAB 3: GESTIÓN DE USUARIOS ───────────────────────────────────
+    with tab_usr:
+        st.markdown("### 👥 Usuarios registrados")
+        usuarios_actuales = cargar_usuarios()
+
+        for uname, udata in list(usuarios_actuales.items()):
+            cu, cn, cr, cd = st.columns([2,2,1,1])
+            with cu: st.markdown(f"**`{uname}`**")
+            with cn: st.markdown(udata.get('nombre','—'))
+            with cr:
+                icon = "🔑" if udata.get('rol')=='admin' else "👤"
+                st.markdown(f"{icon} {udata.get('rol','usuario')}")
+            with cd:
+                admins = [u for u,d in usuarios_actuales.items() if d.get('rol')=='admin']
+                puede  = not (uname==st.session_state.usuario_actual or
+                              (udata.get('rol')=='admin' and len(admins)<=1))
+                if puede:
+                    if st.button("🗑️", key=f"del_u_{uname}", help=f"Eliminar {uname}"):
+                        del usuarios_actuales[uname]
+                        guardar_usuarios(usuarios_actuales)
+                        st.success(f"Usuario **{uname}** eliminado."); st.rerun()
+                else: st.markdown("—")
+
+        st.markdown("---")
+        st.markdown("### 🔑 Cambiar contraseña")
+        ca, cb = st.columns(2)
+        with ca: usr_c = st.selectbox("Usuario", options=list(usuarios_actuales.keys()), key="c_usr")
+        with cb: np1   = st.text_input("Nueva contraseña", type="password", key="np1")
+        np2 = st.text_input("Confirmar contraseña", type="password", key="np2")
+        if st.button("💾 Guardar contraseña", use_container_width=True):
+            if not np1:      st.error("La contraseña no puede estar vacía.")
+            elif np1!=np2:   st.error("Las contraseñas no coinciden.")
+            elif len(np1)<6: st.error("Mínimo 6 caracteres.")
+            else:
+                usuarios_actuales[usr_c]['password_hash'] = hash_password(np1)
+                guardar_usuarios(usuarios_actuales)
+                st.success(f"✅ Contraseña de **{usr_c}** actualizada.")
+
+        st.markdown("---")
+        st.markdown("### ➕ Añadir nuevo usuario")
+        c1, c2 = st.columns(2)
+        with c1:
+            nu_user = st.text_input("Nombre de usuario", placeholder="ej: usuario1", key="nu_user")
+            nu_name = st.text_input("Nombre completo",   placeholder="ej: Ana Pérez",  key="nu_name")
+        with c2:
+            nu_pass = st.text_input("Contraseña", type="password", key="nu_pass")
+            nu_rol  = st.selectbox("Rol", options=["usuario","admin"], key="nu_rol")
+        if st.button("➕ Crear usuario", use_container_width=True):
+            nu = nu_user.strip()
+            if not nu:                                      st.error("El nombre no puede estar vacío.")
+            elif nu in usuarios_actuales:                   st.error(f"El usuario **{nu}** ya existe.")
+            elif not nu_pass:                               st.error("La contraseña no puede estar vacía.")
+            elif len(nu_pass)<6:                            st.error("Mínimo 6 caracteres.")
+            elif not re.match(r'^[a-zA-Z0-9_\-\.]+$', nu): st.error("Solo letras, números, guiones y puntos.")
+            else:
+                usuarios_actuales[nu] = {
+                    "password_hash": hash_password(nu_pass),
+                    "nombre": nu_name.strip() or nu,
+                    "rol": nu_rol
+                }
+                guardar_usuarios(usuarios_actuales)
+                st.success(f"✅ Usuario **{nu}** creado."); st.rerun()
 
 # ============================================================================
 # MAIN
 # ============================================================================
 
+import time
+
 def main():
     init_db()
 
+    # ── Sidebar: uploader rápido + navegación ────────────────────────
     with st.sidebar:
         usuarios = cargar_usuarios()
         nombre_mostrar = usuarios.get(st.session_state.usuario_actual, {}).get(
@@ -1166,15 +1384,33 @@ def main():
             st.rerun()
         st.markdown("---")
 
-    p_existencias = st.Page(pagina_existencias,      title="Existencias",         icon="📦", default=True)
-    p_productos   = st.Page(pagina_productos,        title="Productos",           icon="🗂️")
-    p_entradas    = st.Page(pagina_entradas,         title="Entradas",            icon="📥")
-    p_salidas     = st.Page(pagina_salidas,          title="Salidas",             icon="📤")
-    p_usuarios    = st.Page(pagina_gestion_usuarios, title="Gestión de Usuarios", icon="⚙️")
+        # ── Uploader rápido en sidebar ───────────────────────────────
+        st.markdown("**📎 Subida rápida**")
+        archivos_sidebar = st.file_uploader(
+            "PDF o CSV",
+            type=["pdf", "csv"],
+            accept_multiple_files=True,
+            key="sidebar_uploader",
+            label_visibility="collapsed"
+        )
+        if archivos_sidebar:
+            nombre_auto = _nombre_revision_por_defecto()
+            if st.button("💾 Guardar como revisión", key="btn_sidebar_save", use_container_width=True):
+                pares = [(f.name, f.read()) for f in archivos_sidebar]
+                crear_revision(nombre_auto, pares)
+                st.success(f"✅ Guardado: {nombre_auto}")
+                st.rerun()
+        st.markdown("---")
+
+    p_existencias = st.Page(pagina_existencias,   title="Existencias",   icon="📦", default=True)
+    p_productos   = st.Page(pagina_productos,     title="Productos",     icon="🗂️")
+    p_entradas    = st.Page(pagina_entradas,      title="Entradas",      icon="📥")
+    p_salidas     = st.Page(pagina_salidas,       title="Salidas",       icon="📤")
+    p_config      = st.Page(pagina_configuracion, title="Configuración", icon="⚙️")
 
     pg = st.navigation({
         "RPT – Gestor de Efectivos": [p_existencias, p_productos, p_entradas, p_salidas],
-        "Administración":            [p_usuarios],
+        "Administración":            [p_config],
     })
 
     pg.run()
