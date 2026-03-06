@@ -6,6 +6,8 @@ import io
 import traceback
 import shutil
 import pickle
+import hashlib
+import json
 from pathlib import Path
 from PIL import Image
 from datetime import datetime, timezone, timedelta
@@ -20,10 +22,52 @@ HEADER_MAIN_FILE = DIR_DISENO / "ADA-vc-color (1).jpg"
 CARPETA_REVISIONES = BASE_DIR / "revisiones"
 CARPETA_REVISIONES.mkdir(exist_ok=True)
 
+# Archivo donde se guardan los usuarios
+USUARIOS_FILE = BASE_DIR / "usuarios.json"
+
+# ============================================================================
+# GESTIÓN DE USUARIOS
+# ============================================================================
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def cargar_usuarios() -> dict:
+    """Carga usuarios desde el archivo JSON. Si no existe, crea uno por defecto."""
+    if USUARIOS_FILE.exists():
+        try:
+            with open(USUARIOS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    # Usuarios por defecto
+    usuarios_default = {
+        "admin": {
+            "password_hash": hash_password("admin123"),
+            "nombre": "Administrador",
+            "rol": "admin"
+        }
+    }
+    guardar_usuarios(usuarios_default)
+    return usuarios_default
+
+def guardar_usuarios(usuarios: dict):
+    """Guarda el diccionario de usuarios en disco."""
+    with open(USUARIOS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(usuarios, f, ensure_ascii=False, indent=2)
+
+def verificar_credenciales(username: str, password: str) -> bool:
+    usuarios = cargar_usuarios()
+    if username in usuarios:
+        return usuarios[username]['password_hash'] == hash_password(password)
+    return False
+
 # ============================================================================
 # SESSION STATE
 # ============================================================================
-for key, val in {
+defaults = {
+    'autenticado': False,
+    'usuario_actual': None,
     'archivos_procesados': None,
     'comparacion_ejecutada': False,
     'dataframes_procesados': None,
@@ -32,7 +76,9 @@ for key, val in {
     'revision_activa_path': None,
     'renombrando': None,
     'confirmando_borrar': None,
-}.items():
+    'mostrar_config_usuarios': False,
+}
+for key, val in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = val
 
@@ -129,10 +175,90 @@ st.markdown("""
     .main .stButton > button:hover { background-color: var(--verde-hover); }
     input, textarea { border-radius: 6px !important; }
     footer { visibility: hidden; }
+
+    /* ── Login page ────────────────────────────────────────────────── */
+    .login-container {
+        max-width: 420px;
+        margin: 4rem auto;
+        padding: 2.5rem 2rem;
+        background: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 4px 24px rgba(11, 110, 60, 0.12);
+        border-top: 5px solid var(--verde-junta);
+    }
+    .login-title {
+        text-align: center;
+        color: var(--verde-junta);
+        font-size: 1.6rem;
+        font-weight: 700;
+        margin-bottom: 0.3rem;
+    }
+    .login-subtitle {
+        text-align: center;
+        color: #666;
+        font-size: 0.9rem;
+        margin-bottom: 1.5rem;
+    }
     </style>
 """, unsafe_allow_html=True)
 
-# --- Banner ---
+# ============================================================================
+# PANTALLA DE LOGIN
+# ============================================================================
+def mostrar_login():
+    # Ocultamos sidebar en el login
+    st.markdown("""
+        <style>
+        section[data-testid="stSidebar"] { display: none !important; }
+        [data-testid="collapsedControl"]  { display: none !important; }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # Banner si existe
+    try:
+        if HEADER_MAIN_FILE.exists():
+            col_l, col_c, col_r = st.columns([1, 2, 1])
+            with col_c:
+                st.image(str(HEADER_MAIN_FILE), use_container_width=True)
+    except Exception:
+        pass
+
+    st.markdown("""
+        <div class="login-container">
+            <div class="login-title">🔐 Acceso al Sistema</div>
+            <div class="login-subtitle">RPT – Gestor de Efectivos</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    col_l, col_c, col_r = st.columns([1, 1.4, 1])
+    with col_c:
+        with st.container():
+            st.markdown("#### Iniciar Sesión")
+            username = st.text_input("👤 Usuario", placeholder="Introduce tu usuario", key="login_user")
+            password = st.text_input("🔑 Contraseña", type="password", placeholder="Introduce tu contraseña", key="login_pass")
+
+            if st.button("Entrar →", type="primary", use_container_width=True):
+                if username.strip() == "":
+                    st.error("Por favor, introduce tu usuario.")
+                elif password == "":
+                    st.error("Por favor, introduce tu contraseña.")
+                elif verificar_credenciales(username.strip(), password):
+                    st.session_state.autenticado = True
+                    st.session_state.usuario_actual = username.strip()
+                    st.rerun()
+                else:
+                    st.error("❌ Usuario o contraseña incorrectos.")
+
+# Si no está autenticado, mostramos login y detenemos la ejecución
+if not st.session_state.autenticado:
+    mostrar_login()
+    st.stop()
+
+# ============================================================================
+# A PARTIR DE AQUÍ: USUARIO AUTENTICADO
+# ============================================================================
+
+# --- Banner principal ---
 try:
     if HEADER_MAIN_FILE.exists():
         st.image(str(HEADER_MAIN_FILE), width='stretch')
@@ -172,13 +298,11 @@ def eliminar_revision(carpeta_rev):
     shutil.rmtree(carpeta_rev)
 
 def guardar_cache(carpeta_rev, dataframes_procesados, info_archivos):
-    """Guarda los DataFrames ya procesados en disco para no reprocesar."""
     cache_path = carpeta_rev / "_cache.pkl"
     with open(cache_path, 'wb') as f:
         pickle.dump({'dataframes': dataframes_procesados, 'info': info_archivos}, f)
 
 def cargar_cache(carpeta_rev):
-    """Carga el cache si existe. Devuelve (dataframes, info) o (None, None)."""
     cache_path = carpeta_rev / "_cache.pkl"
     if cache_path.exists():
         try:
@@ -190,7 +314,6 @@ def cargar_cache(carpeta_rev):
     return None, None
 
 def renombrar_revision(carpeta_rev, nuevo_nombre):
-    """Renombra la carpeta de revisión y devuelve la nueva ruta."""
     nuevo_nombre_limpio = re.sub(r'[<>:"/\\|?*]', '_', nuevo_nombre.strip())
     nueva_carpeta = CARPETA_REVISIONES / nuevo_nombre_limpio
     carpeta_rev.rename(nueva_carpeta)
@@ -260,13 +383,11 @@ def extraer_dni(linea):
     return match.group(1) if match else None
 
 def extraer_ads(linea):
-    """Extrae el tipo de administración: F (Funcionario) o L (Laboral)"""
     if re.search(r'\b1F\s', linea): return 'F'
     if re.search(r'\b1L\s', linea): return 'L'
     return None
 
 def extraer_modo_acceso(linea):
-    """Extrae el modo de acceso del puesto (PC, PLD, PCE, etc.)"""
     match = re.search(r'1F\s+([A-Z]{2,3}(?:,\w+)?|[A-Z]\.\d+,?/?\d*|/\d+,[A-Z]\.\d+)\s+(?:AX\s+)?[A-E]\d', linea)
     if match:
         modo = match.group(1).strip()
@@ -295,51 +416,24 @@ def extraer_modo_acceso(linea):
                 return match_modo.group(1)
     return None
 
-# ── Mapa localidad → provincia ──────────────────────────────────────────────
 LOCALIDAD_A_PROVINCIA = {
-    # ALMERÍA
-    'ALMERIA':                 'ALMERÍA',
-    'MOJONERA (LA)':           'ALMERÍA',
-
-    # CÁDIZ
-    'ALGECIRAS':               'CÁDIZ',
-    'CADIZ':                   'CÁDIZ',
-    'CHIPIONA':                'CÁDIZ',
-    'JEREZ DE LA FRONTERA':    'CÁDIZ',
-    'PUERTO DE SANTA MARI':    'CÁDIZ',
-    'SANLUCAR DE BARRAMED':    'CÁDIZ',
-    # CÓRDOBA
-    'CABRA':                   'CÓRDOBA',
-    'CORDOBA':                 'CÓRDOBA',
-    'HINOJOSA DEL DUQUE':      'CÓRDOBA',
-    'PALMA DEL RIO':           'CÓRDOBA',
-    # GRANADA
-    'ARMILLA':                 'GRANADA',
-    'GRANADA':                 'GRANADA',
-    'MOTRIL':                  'GRANADA',
-    # HUELVA
-    'CARTAYA':                 'HUELVA',
-    'HUELVA':                  'HUELVA',
-    # JAÉN
-    'JAEN':                    'JAÉN',
-    'MENGIBAR':                'JAÉN',
-    # MÁLAGA
-    'CAMPANILLAS':             'MÁLAGA',
-    'CHURRIANA':               'MÁLAGA',
-    'MALAGA':                  'MÁLAGA',
-    # SEVILLA
-    'ALCALA DEL RIO':          'SEVILLA',
-    'AZNALCAZAR':              'SEVILLA',
-    'PALACIOS Y VILLAFRAN':    'SEVILLA',
-    'SEVILLA':                 'SEVILLA',
+    'ALMERIA': 'ALMERÍA', 'MOJONERA (LA)': 'ALMERÍA',
+    'ALGECIRAS': 'CÁDIZ', 'CADIZ': 'CÁDIZ', 'CHIPIONA': 'CÁDIZ',
+    'JEREZ DE LA FRONTERA': 'CÁDIZ', 'PUERTO DE SANTA MARI': 'CÁDIZ',
+    'SANLUCAR DE BARRAMED': 'CÁDIZ',
+    'CABRA': 'CÓRDOBA', 'CORDOBA': 'CÓRDOBA', 'HINOJOSA DEL DUQUE': 'CÓRDOBA',
+    'PALMA DEL RIO': 'CÓRDOBA',
+    'ARMILLA': 'GRANADA', 'GRANADA': 'GRANADA', 'MOTRIL': 'GRANADA',
+    'CARTAYA': 'HUELVA', 'HUELVA': 'HUELVA',
+    'JAEN': 'JAÉN', 'MENGIBAR': 'JAÉN',
+    'CAMPANILLAS': 'MÁLAGA', 'CHURRIANA': 'MÁLAGA', 'MALAGA': 'MÁLAGA',
+    'ALCALA DEL RIO': 'SEVILLA', 'AZNALCAZAR': 'SEVILLA',
+    'PALACIOS Y VILLAFRAN': 'SEVILLA', 'SEVILLA': 'SEVILLA',
 }
 
 LOCALIDADES_INVALIDAS = {
-    'DPL. INFORMATICA INFORMATICA SEVILLA',
-    'GRDO/A EN ING SEVILLA',
-    'INFORMATICA MALAGA',
-    'INFORMATICA SEVILLA',
-    'INGENIERO EN SEVILLA',
+    'DPL. INFORMATICA INFORMATICA SEVILLA', 'GRDO/A EN ING SEVILLA',
+    'INFORMATICA MALAGA', 'INFORMATICA SEVILLA', 'INGENIERO EN SEVILLA',
     'INGENIERO SEVILLA',
 }
 
@@ -368,7 +462,6 @@ def extraer_dotacion(linea):
     if match2: return "NO DOTADA" if match2.group(2) == '0' else "DOTADA"
     match3 = re.search(r'\s(\d+)\s+(\d+)\s+[A-E]\d(?:-[A-E]\d)?(?:\s|P-)', linea)
     if match3: return "NO DOTADA" if match3.group(2) == '0' else "DOTADA"
-    # Laboral: grupos con números romanos (IV, III, etc.)
     match4 = re.search(r'\s(\d+)\s+(\d+)\s+[IVX]+\s', linea)
     if match4: return "NO DOTADA" if match4.group(2) == '0' else "DOTADA"
     partes = linea.split()
@@ -510,52 +603,56 @@ def ordenar_archivos_por_fecha(archivos_lista):
     archivos_con_fecha.sort(key=lambda x: x[2])
     return [(n, b, f) for n, b, _, f in archivos_con_fecha]
 
-# ============================================================================
-# FUNCIÓN PARA ENRIQUECER DATOS: RELACIONAR CÓDIGOS CON NOMBRES
-# ============================================================================
-
 def enriquecer_dataframe_con_nombres(df_sin_nombres, df_con_nombres):
-    """
-    Relaciona un DataFrame sin nombres (códigos) con otro que sí tiene nombres.
-    """
     if df_con_nombres.empty or df_sin_nombres.empty:
         return df_sin_nombres
-
     try:
         df_resultado = df_sin_nombres.copy()
         df_nombres_validos = df_con_nombres[df_con_nombres['Ocupante'] != 'LIBRE'].copy()
-
         if df_nombres_validos.empty:
             return df_resultado
-
         mapeo_nombres = dict(zip(df_nombres_validos['Código'], df_nombres_validos['Ocupante']))
-
         for idx, row in df_resultado.iterrows():
             codigo = row['Código']
             if codigo in mapeo_nombres and row['Ocupante'] == 'LIBRE':
                 df_resultado.at[idx, 'Ocupante'] = mapeo_nombres[codigo]
                 df_resultado.at[idx, 'Estado_Plaza'] = 'OCUPADA'
-
         st.info(f"✅ Se enriquecieron los datos: {len([x for x in mapeo_nombres.values() if x])} ocupantes relacionados")
         return df_resultado
-
     except Exception as e:
         st.warning(f"⚠️ No se pudo enriquecer los datos: {e}")
         return df_sin_nombres
 
 # ============================================================================
-# SIDEBAR - REVISIONES GUARDADAS
+# SIDEBAR
 # ============================================================================
 with st.sidebar:
-    st.markdown("## 📁 Revisiones Guardadas")
 
+    # ── Usuario actual + cerrar sesión ─────────────────────────────────
+    usuarios = cargar_usuarios()
+    nombre_mostrar = usuarios.get(st.session_state.usuario_actual, {}).get('nombre', st.session_state.usuario_actual)
+    st.markdown(f"👤 **{nombre_mostrar}**")
+    if st.button("🚪 Cerrar Sesión"):
+        st.session_state.autenticado = False
+        st.session_state.usuario_actual = None
+        st.session_state.comparacion_ejecutada = False
+        st.session_state.archivos_procesados = None
+        st.session_state.dataframes_procesados = None
+        st.session_state.info_archivos = None
+        st.session_state.revision_activa = None
+        st.session_state.revision_activa_path = None
+        st.rerun()
+
+    st.markdown("---")
+
+    # ── Revisiones Guardadas ────────────────────────────────────────────
+    st.markdown("## 📁 Revisiones Guardadas")
     revisiones = listar_revisiones()
 
     if not revisiones:
         st.info("No hay revisiones guardadas aún.")
     else:
         for carpeta_rev in revisiones:
-            # ── Modo renombrar ──────────────────────────────────────────────
             if st.session_state.renombrando == str(carpeta_rev):
                 nuevo_nombre = st.text_input(
                     "Nuevo nombre",
@@ -578,7 +675,6 @@ with st.sidebar:
                         st.session_state.renombrando = None
                         st.rerun()
             else:
-                # ── Vista normal: botón abrir + botones renombrar y eliminar ──
                 fecha_mod = datetime.fromtimestamp(carpeta_rev.stat().st_mtime).strftime('%d/%m/%Y')
                 col1, col2, col3 = st.columns([3, 1, 1])
                 with col1:
@@ -610,7 +706,6 @@ with st.sidebar:
                         st.session_state.confirmando_borrar = str(carpeta_rev)
                         st.rerun()
 
-            # ── Modo confirmación de borrado ────────────────────────────────
             if st.session_state.confirmando_borrar == str(carpeta_rev):
                 st.warning(f"⚠️ ¿Eliminar **{carpeta_rev.name}**?")
                 col_si, col_no = st.columns(2)
@@ -640,6 +735,117 @@ with st.sidebar:
         st.session_state.revision_activa = None
         st.session_state.revision_activa_path = None
         st.rerun()
+
+    # ── Configuración de Usuarios ───────────────────────────────────────
+    st.markdown("---")
+    st.markdown("## ⚙️ Configuración")
+
+    toggle_label = "🔒 Cerrar Gestión de Usuarios" if st.session_state.mostrar_config_usuarios else "👥 Gestionar Usuarios"
+    if st.button(toggle_label):
+        st.session_state.mostrar_config_usuarios = not st.session_state.mostrar_config_usuarios
+        st.rerun()
+
+# ============================================================================
+# PANEL DE GESTIÓN DE USUARIOS (se muestra en el área principal si está activo)
+# ============================================================================
+if st.session_state.mostrar_config_usuarios:
+    st.markdown("## ⚙️ Configuración de Usuarios")
+    st.markdown("Gestiona los usuarios que tienen acceso a la aplicación.")
+    st.markdown("---")
+
+    usuarios_actuales = cargar_usuarios()
+
+    # ── Tabla de usuarios existentes ────────────────────────────────────
+    st.markdown("### 👥 Usuarios registrados")
+
+    for uname, udata in list(usuarios_actuales.items()):
+        col_u, col_n, col_r, col_del = st.columns([2, 2, 1, 1])
+        with col_u:
+            st.markdown(f"**`{uname}`**")
+        with col_n:
+            st.markdown(udata.get('nombre', '—'))
+        with col_r:
+            rol_icon = "🔑" if udata.get('rol') == 'admin' else "👤"
+            st.markdown(f"{rol_icon} {udata.get('rol', 'usuario')}")
+        with col_del:
+            # No permitir eliminar el propio usuario ni el último admin
+            admins = [u for u, d in usuarios_actuales.items() if d.get('rol') == 'admin']
+            puede_borrar = not (uname == st.session_state.usuario_actual or (udata.get('rol') == 'admin' and len(admins) <= 1))
+            if puede_borrar:
+                if st.button("🗑️", key=f"del_user_{uname}", help=f"Eliminar {uname}"):
+                    del usuarios_actuales[uname]
+                    guardar_usuarios(usuarios_actuales)
+                    st.success(f"Usuario **{uname}** eliminado.")
+                    st.rerun()
+            else:
+                st.markdown("—")
+
+    st.markdown("---")
+
+    # ── Cambiar contraseña de un usuario existente ──────────────────────
+    st.markdown("### 🔑 Cambiar contraseña")
+    with st.container():
+        col_a, col_b = st.columns(2)
+        with col_a:
+            usuario_cambio = st.selectbox(
+                "Usuario",
+                options=list(usuarios_actuales.keys()),
+                key="cambio_pass_user"
+            )
+        with col_b:
+            nueva_pass = st.text_input("Nueva contraseña", type="password", key="nueva_pass_input")
+
+        confirmar_pass = st.text_input("Confirmar contraseña", type="password", key="confirmar_pass_input")
+
+        if st.button("💾 Guardar nueva contraseña", use_container_width=True):
+            if not nueva_pass:
+                st.error("La contraseña no puede estar vacía.")
+            elif nueva_pass != confirmar_pass:
+                st.error("Las contraseñas no coinciden.")
+            elif len(nueva_pass) < 6:
+                st.error("La contraseña debe tener al menos 6 caracteres.")
+            else:
+                usuarios_actuales[usuario_cambio]['password_hash'] = hash_password(nueva_pass)
+                guardar_usuarios(usuarios_actuales)
+                st.success(f"✅ Contraseña de **{usuario_cambio}** actualizada correctamente.")
+
+    st.markdown("---")
+
+    # ── Añadir nuevo usuario ─────────────────────────────────────────────
+    st.markdown("### ➕ Añadir nuevo usuario")
+    with st.container():
+        col_1, col_2 = st.columns(2)
+        with col_1:
+            nuevo_username = st.text_input("Nombre de usuario", placeholder="ej: usuario1", key="nuevo_user")
+            nuevo_nombre = st.text_input("Nombre completo", placeholder="ej: Juan García", key="nuevo_nombre")
+        with col_2:
+            nuevo_password = st.text_input("Contraseña", type="password", key="nuevo_password")
+            nuevo_rol = st.selectbox("Rol", options=["usuario", "admin"], key="nuevo_rol")
+
+        if st.button("➕ Crear usuario", use_container_width=True):
+            nu = nuevo_username.strip()
+            if not nu:
+                st.error("El nombre de usuario no puede estar vacío.")
+            elif nu in usuarios_actuales:
+                st.error(f"El usuario **{nu}** ya existe.")
+            elif not nuevo_password:
+                st.error("La contraseña no puede estar vacía.")
+            elif len(nuevo_password) < 6:
+                st.error("La contraseña debe tener al menos 6 caracteres.")
+            elif not re.match(r'^[a-zA-Z0-9_\-\.]+$', nu):
+                st.error("El nombre de usuario solo puede contener letras, números, guiones y puntos.")
+            else:
+                usuarios_actuales[nu] = {
+                    "password_hash": hash_password(nuevo_password),
+                    "nombre": nuevo_nombre.strip() or nu,
+                    "rol": nuevo_rol
+                }
+                guardar_usuarios(usuarios_actuales)
+                st.success(f"✅ Usuario **{nu}** creado correctamente.")
+                st.rerun()
+
+    st.markdown("---")
+    st.stop()   # No mostramos el resto de la app mientras estamos en config
 
 # ============================================================================
 # PANTALLA DE CARGA
@@ -778,7 +984,6 @@ if st.session_state.comparacion_ejecutada and st.session_state.archivos_procesad
 
             st.markdown("---")
 
-        # ── Enriquecimiento automático si hay múltiples archivos ──
         if len(dataframes_procesados) >= 2:
             st.success(f"✅ PDFs procesados correctamente")
 
@@ -793,7 +998,6 @@ if st.session_state.comparacion_ejecutada and st.session_state.archivos_procesad
         dataframes_procesados = st.session_state.dataframes_procesados
         info_archivos = st.session_state.info_archivos
 
-    # ── Opción para enriquecer datos con nombres desde otro archivo ──
     if len(dataframes_procesados) >= 1:
         with st.expander("🔗 Enriquecer Datos (Relacionar códigos con nombres)", expanded=False):
             st.markdown("**Si tienes un archivo con nombres que falta agregar a los códigos, cárgalo aquí:**")
@@ -824,7 +1028,6 @@ if st.session_state.comparacion_ejecutada and st.session_state.archivos_procesad
                     except Exception as e:
                         st.error(f"❌ Error procesando el archivo: {e}")
 
-    # ── Si solo hay un archivo, mostrar vista individual ──────────────────
     if len(dataframes_procesados) == 1:
         df_solo = dataframes_procesados[0]
         info_solo = info_archivos[0]
@@ -832,7 +1035,6 @@ if st.session_state.comparacion_ejecutada and st.session_state.archivos_procesad
         if info_solo.get('fecha') and info_solo['fecha'] != 'Sin fecha':
             st.caption(f"📅 Fecha del archivo: **{info_solo['fecha']}**")
 
-        # Detectar si el PDF tiene datos de Modo de Acceso
         modos_disponibles = sorted([m for m in df_solo['Modo_Acceso'].unique() if pd.notna(m)])
         tiene_modo_acceso = len(modos_disponibles) > 0
 
@@ -880,10 +1082,7 @@ if st.session_state.comparacion_ejecutada and st.session_state.archivos_procesad
         else:
             cols_tabla = ['Código','Denominación','Grupo','Cuerpo','Provincia','Localidad','Carácter','Dotación','Estado_Plaza','Ocupante']
 
-        st.dataframe(
-            df_f[cols_tabla],
-            width='stretch', height=500
-        )
+        st.dataframe(df_f[cols_tabla], width='stretch', height=500)
         st.caption(f"Mostrando {len(df_f)} de {len(df_solo)} plazas")
 
     elif len(dataframes_procesados) >= 2:
