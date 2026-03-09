@@ -1,7 +1,6 @@
 import streamlit as st
 import pdfplumber
 import pandas as pd
-import openpyxl
 import re
 import io
 import traceback
@@ -160,16 +159,8 @@ footer { visibility: hidden; }
     padding: 0.8rem 1rem;
     margin-bottom: 0.5rem;
 }
-.revision-nombre {
-    font-weight: 700;
-    color: #0b6e3c;
-    font-size: 1rem;
-}
-.revision-meta {
-    font-size: 0.8rem;
-    color: #666;
-    margin-top: 0.2rem;
-}
+.revision-nombre { font-weight: 700; color: #0b6e3c; font-size: 1rem; }
+.revision-meta   { font-size: 0.8rem; color: #666; margin-top: 0.2rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -228,25 +219,18 @@ def _nombre_revision_por_defecto() -> str:
     return dt.now().strftime("%H:%M - %d/%m/%Y")
 
 def _slug(nombre: str) -> str:
-    """Convierte nombre a nombre de carpeta seguro."""
     return re.sub(r'[<>:"/\\|?*\s]', '_', nombre.strip())
 
 def listar_revisiones() -> list:
-    """Devuelve lista de carpetas de revisiones ordenadas por fecha de modificación."""
     return sorted(
         [r for r in CARPETA_REVISIONES.iterdir() if r.is_dir()],
         key=lambda r: r.stat().st_mtime, reverse=True
     )
 
 def crear_revision(nombre: str, archivos: list) -> Path:
-    """
-    Crea una carpeta de revisión y guarda los archivos.
-    archivos: lista de (nombre_archivo, bytes)
-    """
     slug = _slug(nombre)
     carpeta = CARPETA_REVISIONES / slug
     carpeta.mkdir(exist_ok=True)
-    # Guardamos el nombre legible en un fichero metadata
     meta = {"nombre": nombre, "creada": dt.now().strftime("%H:%M - %d/%m/%Y")}
     with open(carpeta / "_meta.json", "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False)
@@ -263,21 +247,22 @@ def leer_meta(carpeta: Path) -> dict:
                 return json.load(f)
         except Exception:
             pass
-    # fallback: usar nombre de carpeta y fecha de modificación
     mtime = dt.fromtimestamp(carpeta.stat().st_mtime)
     return {"nombre": carpeta.name.replace("_", " "), "creada": mtime.strftime("%H:%M - %d/%m/%Y")}
 
 def archivos_de_revision(carpeta: Path) -> list:
-    """Devuelve lista de paths de archivos (pdf/csv) en la carpeta."""
-    return [p for p in sorted(carpeta.iterdir()) if p.suffix.lower() in (".pdf", ".csv") and p.name != "_meta.json"]
+    # ── XLSX añadido ──
+    return [p for p in sorted(carpeta.iterdir())
+            if p.suffix.lower() in (".pdf", ".csv", ".xlsx") and p.name != "_meta.json"]
 
 def eliminar_revision(carpeta: Path):
     shutil.rmtree(carpeta)
 
 def renombrar_revision(carpeta: Path, nuevo_nombre: str) -> Path:
+    meta_vieja = leer_meta(carpeta)
     nueva_carpeta = CARPETA_REVISIONES / _slug(nuevo_nombre)
     carpeta.rename(nueva_carpeta)
-    meta = {"nombre": nuevo_nombre, "creada": leer_meta(carpeta).get("creada", "")}
+    meta = {"nombre": nuevo_nombre, "creada": meta_vieja.get("creada", "")}
     with open(nueva_carpeta / "_meta.json", "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False)
     return nueva_carpeta
@@ -323,8 +308,6 @@ def init_db():
     conn.commit()
     _load_demo(conn)
     conn.close()
-
-# ── Helpers BD ──────────────────────────────────────────────────────────────
 
 def _nh(c):
     s = str(c).strip().lower()
@@ -605,7 +588,6 @@ def procesar_pdf(archivo_bytes, nombre_archivo):
                 if paginas_sin_texto:
                     st.warning(f"⚠️ {len(paginas_sin_texto)} páginas sin texto en {nombre_archivo}")
                 st.info(f"✅ {nombre_archivo}: {len(todas_lineas):,} líneas extraídas")
-
             i = 0
             while i < len(todas_lineas):
                 linea = todas_lineas[i]
@@ -641,10 +623,8 @@ def procesar_pdf(archivo_bytes, nombre_archivo):
                         'DNI': dni_ocupante, 'Carácter': formacion_ocupante
                     })
                 i += 1
-
         df = pd.DataFrame(registros)
         if df.empty: st.error(f"❌ {nombre_archivo}: sin plazas."); return pd.DataFrame()
-
         df_oc = df[df['Estado_Plaza']=='OCUPADA'].copy()
         if not df_oc.empty and 'DNI' in df_oc.columns:
             df_oc['_cp'] = df_oc['DNI'].fillna('')+'|'+df_oc['Ocupante']
@@ -658,7 +638,6 @@ def procesar_pdf(archivo_bytes, nombre_archivo):
                         for cod in rp[rp['Carácter']=='DEFINITIVO']['Código'].tolist():
                             df.loc[df['Código']==cod,'Estado_Plaza'] = 'VACANTE'
                             df.loc[df['Código']==cod,'Ocupante'] = f'({nombre_func})'
-
         df = df.drop_duplicates(subset=['Código'])
         st.success(f"✅ {nombre_archivo}: {len(df):,} plazas únicas")
         return df
@@ -668,225 +647,145 @@ def procesar_pdf(archivo_bytes, nombre_archivo):
         return pd.DataFrame()
 
 # ============================================================================
-# PÁGINA 1 — EXISTENCIAS
+# PÁGINAS 1-4 (Existencias, Productos, Entradas, Salidas) — sin cambios
 # ============================================================================
 
 def pagina_existencias():
     _banner()
     st.title("📦 Existencias")
-
     conn = get_db()
     df_arts, _, _ = _load_base(conn)
-
-    total_art   = len(df_arts)
-    total_stock = int(df_arts['current_stock'].sum())
-    sin_stock   = len(df_arts[df_arts['current_stock'] <= 0])
-
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Total artículos",   total_art)
-    m2.metric("Unidades en stock", total_stock)
-    m3.metric("Sin stock",         sin_stock)
+    total_art=len(df_arts); total_stock=int(df_arts['current_stock'].sum()); sin_stock=len(df_arts[df_arts['current_stock']<=0])
+    m1,m2,m3=st.columns(3)
+    m1.metric("Total artículos",total_art); m2.metric("Unidades en stock",total_stock); m3.metric("Sin stock",sin_stock)
     st.markdown("---")
-
     st.markdown("#### 🔎 Filtros")
-    fc1, fc2, fc3 = st.columns(3)
-    tipos_disp = sorted([t for t in df_arts['type'].dropna().unique() if t])
-    with fc1: f_tipo  = st.multiselect("📂 Categoría", options=tipos_disp, key="ex_ftipo")
-    with fc2: f_stock = st.multiselect("📊 Stock",     options=["Con stock","Sin stock"], key="ex_fest")
-    with fc3: f_texto = st.text_input("🔍 Buscar",     placeholder="Código o nombre…", key="ex_ftxt")
-
-    df_view = df_arts.copy()
-    if f_tipo:                 df_view = df_view[df_view['type'].isin(f_tipo)]
-    if "Con stock" in f_stock: df_view = df_view[df_view['current_stock'] > 0]
-    if "Sin stock" in f_stock: df_view = df_view[df_view['current_stock'] <= 0]
+    fc1,fc2,fc3=st.columns(3)
+    tipos_disp=sorted([t for t in df_arts['type'].dropna().unique() if t])
+    with fc1: f_tipo=st.multiselect("📂 Categoría",options=tipos_disp,key="ex_ftipo")
+    with fc2: f_stock=st.multiselect("📊 Stock",options=["Con stock","Sin stock"],key="ex_fest")
+    with fc3: f_texto=st.text_input("🔍 Buscar",placeholder="Código o nombre…",key="ex_ftxt")
+    df_view=df_arts.copy()
+    if f_tipo: df_view=df_view[df_view['type'].isin(f_tipo)]
+    if "Con stock" in f_stock: df_view=df_view[df_view['current_stock']>0]
+    if "Sin stock" in f_stock: df_view=df_view[df_view['current_stock']<=0]
     if f_texto.strip():
-        q = f_texto.strip().lower()
-        df_view = df_view[
-            df_view['code'].str.lower().str.contains(q,na=False) |
-            df_view['name'].str.lower().str.contains(q,na=False)
-        ]
-
+        q=f_texto.strip().lower()
+        df_view=df_view[df_view['code'].str.lower().str.contains(q,na=False)|df_view['name'].str.lower().str.contains(q,na=False)]
     st.caption(f"Mostrando **{len(df_view)}** de **{total_art}** artículos")
-
     if not df_view.empty:
         st.markdown("#### 📊 Stock actual por categoría")
         try:
             import plotly.express as px
-            df_c = df_view.groupby('type')['current_stock'].sum().reset_index()
-            df_c.columns = ['Categoría','Unidades']
-            df_c = df_c[df_c['Unidades']>0]
+            df_c=df_view.groupby('type')['current_stock'].sum().reset_index(); df_c.columns=['Categoría','Unidades']; df_c=df_c[df_c['Unidades']>0]
             if not df_c.empty:
-                fig = px.bar(df_c, x='Categoría', y='Unidades', color='Categoría', height=300,
-                             color_discrete_sequence=px.colors.sequential.Greens_r)
-                fig.update_layout(showlegend=False, plot_bgcolor='#f9fafb',
-                                  paper_bgcolor='#ffffff', margin=dict(l=10,r=10,t=30,b=40))
-                st.plotly_chart(fig, use_container_width=True)
+                fig=px.bar(df_c,x='Categoría',y='Unidades',color='Categoría',height=300,color_discrete_sequence=px.colors.sequential.Greens_r)
+                fig.update_layout(showlegend=False,plot_bgcolor='#f9fafb',paper_bgcolor='#ffffff',margin=dict(l=10,r=10,t=30,b=40))
+                st.plotly_chart(fig,use_container_width=True)
         except ImportError:
             st.bar_chart(df_view.groupby('type')['current_stock'].sum())
-
-    st.markdown("---")
-    st.markdown("#### 📋 Tabla de Existencias")
+    st.markdown("---"); st.markdown("#### 📋 Tabla de Existencias")
     for col in ['initial_stock','entries','exits','current_stock']:
-        df_view[col] = pd.to_numeric(df_view[col], errors='coerce').fillna(0)
+        df_view[col]=pd.to_numeric(df_view[col],errors='coerce').fillna(0)
     df_view.insert(0,"Sel",False)
-
-    edited = st.data_editor(df_view, num_rows="dynamic", key="ed_art", column_config={
-        "Sel":           st.column_config.CheckboxColumn("✅", width="small"),
-        "display_full":  None,
-        "code":          st.column_config.TextColumn("Código",   disabled=True),
-        "name":          st.column_config.TextColumn("Artículo", disabled=True),
-        "type":          st.column_config.TextColumn("Tipo",     disabled=True),
-        "initial_stock": st.column_config.NumberColumn("Inicial"),
-        "entries":       st.column_config.NumberColumn("Entradas",  disabled=True),
-        "exits":         st.column_config.NumberColumn("Salidas",   disabled=True),
-        "current_stock": st.column_config.NumberColumn("Actual",    disabled=True),
-        "created_by":    None,
-    }, use_container_width=True)
-
-    cb1, cb2, cb3 = st.columns(3)
+    edited=st.data_editor(df_view,num_rows="dynamic",key="ed_art",column_config={
+        "Sel":st.column_config.CheckboxColumn("✅",width="small"),"display_full":None,
+        "code":st.column_config.TextColumn("Código",disabled=True),"name":st.column_config.TextColumn("Artículo",disabled=True),
+        "type":st.column_config.TextColumn("Tipo",disabled=True),"initial_stock":st.column_config.NumberColumn("Inicial"),
+        "entries":st.column_config.NumberColumn("Entradas",disabled=True),"exits":st.column_config.NumberColumn("Salidas",disabled=True),
+        "current_stock":st.column_config.NumberColumn("Actual",disabled=True),"created_by":None,
+    },use_container_width=True)
+    cb1,cb2,cb3=st.columns(3)
     with cb1:
-        if st.button("💾 Guardar cambios", key="save_art", type="primary"):
+        if st.button("💾 Guardar cambios",key="save_art",type="primary"):
             try:
-                for _, row in edited.iterrows():
-                    if row['code']:
-                        conn.execute("UPDATE articles SET initial_stock=? WHERE code=?",
-                                     (row['initial_stock'],row['code']))
-                conn.commit(); _sync_stock(conn)
-                st.success("✅ Guardado."); _clear_cache(); time.sleep(0.4); st.rerun()
+                for _,row in edited.iterrows():
+                    if row['code']: conn.execute("UPDATE articles SET initial_stock=? WHERE code=?",(row['initial_stock'],row['code']))
+                conn.commit(); _sync_stock(conn); st.success("✅ Guardado."); _clear_cache(); time.sleep(0.4); st.rerun()
             except Exception as e: st.error(f"Error: {e}")
     with cb2:
-        if st.button("🗑️ Eliminar seleccionados", key="del_art"):
-            ids = edited[edited["Sel"]==True]["code"].tolist()
+        if st.button("🗑️ Eliminar seleccionados",key="del_art"):
+            ids=edited[edited["Sel"]==True]["code"].tolist()
             if ids:
                 for c in ids: conn.execute("DELETE FROM articles WHERE code=?",(c,))
-                conn.commit()
-                st.success(f"🗑️ {len(ids)} eliminado(s)."); _clear_cache(); time.sleep(0.4); st.rerun()
+                conn.commit(); st.success(f"🗑️ {len(ids)} eliminado(s)."); _clear_cache(); time.sleep(0.4); st.rerun()
             else: st.warning("Selecciona al menos un artículo.")
     with cb3:
         if not df_view.empty:
-            cols_ex = [c for c in df_view.columns if c not in ("Sel","display_full")]
-            st.download_button("📥 Exportar Excel", data=_to_excel(df_view[cols_ex]),
-                               file_name="existencias.xlsx",
-                               mime="application/vnd.ms-excel", key="exp_art")
+            cols_ex=[c for c in df_view.columns if c not in ("Sel","display_full")]
+            st.download_button("📥 Exportar Excel",data=_to_excel(df_view[cols_ex]),file_name="existencias.xlsx",mime="application/vnd.ms-excel",key="exp_art")
     conn.close()
 
-# ============================================================================
-# PÁGINA 2 — PRODUCTOS
-# ============================================================================
-
 def pagina_productos():
-    _banner()
-    st.title("🗂️ Productos")
-
-    conn = get_db()
-    df_arts, _, _ = _load_base(conn)
-    current_user = st.session_state.usuario_actual or "usuario"
-
-    with st.expander("➕ Añadir Nuevo Producto", expanded=False):
-        ca1, ca2, ca3 = st.columns(3)
-        n_code = ca1.text_input("Código Nuevo", key="prod_code")
-        n_name = ca2.text_input("Nombre Nuevo", key="prod_name")
-        n_type = ca3.selectbox("Grupo", options=list(GROUPS_CONFIG.keys()), key="prod_cat")
-        if st.button("Crear Producto", key="btn_crear_prod"):
+    _banner(); st.title("🗂️ Productos")
+    conn=get_db(); df_arts,_,_=_load_base(conn); current_user=st.session_state.usuario_actual or "usuario"
+    with st.expander("➕ Añadir Nuevo Producto",expanded=False):
+        ca1,ca2,ca3=st.columns(3)
+        n_code=ca1.text_input("Código Nuevo",key="prod_code"); n_name=ca2.text_input("Nombre Nuevo",key="prod_name")
+        n_type=ca3.selectbox("Grupo",options=list(GROUPS_CONFIG.keys()),key="prod_cat")
+        if st.button("Crear Producto",key="btn_crear_prod"):
             if n_code and n_name:
                 try:
-                    conn.execute(
-                        "INSERT INTO articles (code,name,type,initial_stock,entries,exits,current_stock,created_by) VALUES (?,?,?,0,0,0,0,?)",
-                        (n_code.strip(), n_name, GROUPS_CONFIG[n_type]["cat"], current_user))
-                    conn.commit()
-                    st.success("✅ Producto añadido."); _clear_cache(); time.sleep(0.5); st.rerun()
+                    conn.execute("INSERT INTO articles (code,name,type,initial_stock,entries,exits,current_stock,created_by) VALUES (?,?,?,0,0,0,0,?)",(n_code.strip(),n_name,GROUPS_CONFIG[n_type]["cat"],current_user))
+                    conn.commit(); st.success("✅ Producto añadido."); _clear_cache(); time.sleep(0.5); st.rerun()
                 except Exception: st.error("Error: el código ya existe.")
             else: st.warning("Rellena código y nombre.")
-
-    fpc1, fpc2 = st.columns(2)
-    with fpc1: filtro_grupo = st.multiselect("📂 Filtrar por Grupo:",     options=list(GROUPS_CONFIG.keys()), key="prd_fg")
+    fpc1,fpc2=st.columns(2)
+    with fpc1: filtro_grupo=st.multiselect("📂 Filtrar por Grupo:",options=list(GROUPS_CONFIG.keys()),key="prd_fg")
     with fpc2:
-        cats_disp = sorted({t for t in df_arts['type'].dropna() if t})
-        filtro_cat = st.multiselect("🏷️ Filtrar por Categoría:", options=cats_disp, key="prd_fc")
-
-    df_all = df_arts.copy()
-    df_all['type']         = df_all['type'].fillna('Otros').replace('','Otros')
-    df_all['visual_group'] = df_all.apply(lambda r: _group(r['code'], r['name']), axis=1)
-    if filtro_grupo: df_all = df_all[df_all['visual_group'].isin(filtro_grupo)]
-    if filtro_cat:   df_all = df_all[df_all['type'].isin(filtro_cat)]
-
+        cats_disp=sorted({t for t in df_arts['type'].dropna() if t})
+        filtro_cat=st.multiselect("🏷️ Filtrar por Categoría:",options=cats_disp,key="prd_fc")
+    df_all=df_arts.copy(); df_all['type']=df_all['type'].fillna('Otros').replace('','Otros')
+    df_all['visual_group']=df_all.apply(lambda r:_group(r['code'],r['name']),axis=1)
+    if filtro_grupo: df_all=df_all[df_all['visual_group'].isin(filtro_grupo)]
+    if filtro_cat: df_all=df_all[df_all['type'].isin(filtro_cat)]
     for group_name in GROUPS_CONFIG.keys():
-        gdf = df_all[df_all['visual_group']==group_name].copy()
+        gdf=df_all[df_all['visual_group']==group_name].copy()
         if gdf.empty: continue
-        gdf['current_stock'] = pd.to_numeric(gdf['current_stock'], errors='coerce').fillna(0)
+        gdf['current_stock']=pd.to_numeric(gdf['current_stock'],errors='coerce').fillna(0)
         with st.expander(f"📂 {group_name} ({len(gdf)})"):
-            gdf.insert(0,"Sel",False)
-            sk = re.sub(r'\W+','',group_name)
-            edited_grp = st.data_editor(gdf, num_rows="dynamic", key=f"ed_{sk}",
-                column_config={
-                    "Sel":           st.column_config.CheckboxColumn("✅", width="small"),
-                    "display_full":  None,
-                    "code":          st.column_config.TextColumn("Código", disabled=True),
-                    "name":          st.column_config.TextColumn("Nombre"),
-                    "type":          st.column_config.SelectboxColumn("Categoría", options=[
-                        "Almacenamiento","Conectores/Adaptadores","Cables",
-                        "Energía","Periféricos","Redes","Consumibles","Otros"]),
-                    "current_stock": st.column_config.NumberColumn("Stock"),
-                    "created_by":    st.column_config.TextColumn("Creador", disabled=True),
-                    "entries":None,"exits":None,"visual_group":None,"initial_stock":None,
-                }, use_container_width=True, hide_index=True)
-            cb1g, cb2g = st.columns(2)
+            gdf.insert(0,"Sel",False); sk=re.sub(r'\W+','',group_name)
+            edited_grp=st.data_editor(gdf,num_rows="dynamic",key=f"ed_{sk}",column_config={
+                "Sel":st.column_config.CheckboxColumn("✅",width="small"),"display_full":None,
+                "code":st.column_config.TextColumn("Código",disabled=True),"name":st.column_config.TextColumn("Nombre"),
+                "type":st.column_config.SelectboxColumn("Categoría",options=["Almacenamiento","Conectores/Adaptadores","Cables","Energía","Periféricos","Redes","Consumibles","Otros"]),
+                "current_stock":st.column_config.NumberColumn("Stock"),"created_by":st.column_config.TextColumn("Creador",disabled=True),
+                "entries":None,"exits":None,"visual_group":None,"initial_stock":None,
+            },use_container_width=True,hide_index=True)
+            cb1g,cb2g=st.columns(2)
             with cb1g:
-                if st.button("💾 Guardar", key=f"save_{sk}"):
+                if st.button("💾 Guardar",key=f"save_{sk}"):
                     try:
-                        for _, row in edited_grp.iterrows():
+                        for _,row in edited_grp.iterrows():
                             if row['code']:
-                                nc = float(row['current_stock'])
-                                conn.execute(
-                                    "UPDATE articles SET name=?,type=?,initial_stock=?,current_stock=? WHERE code=?",
-                                    (row['name'],row['type'],
-                                     nc-float(row['entries'])+float(row['exits']),
-                                     nc,row['code']))
-                        conn.commit()
-                        st.success("✅ Actualizado."); _clear_cache(); time.sleep(0.5); st.rerun()
+                                nc=float(row['current_stock'])
+                                conn.execute("UPDATE articles SET name=?,type=?,initial_stock=?,current_stock=? WHERE code=?",(row['name'],row['type'],nc-float(row['entries'])+float(row['exits']),nc,row['code']))
+                        conn.commit(); st.success("✅ Actualizado."); _clear_cache(); time.sleep(0.5); st.rerun()
                     except Exception as e: st.error(f"Error: {e}")
             with cb2g:
-                if st.button("🗑️ Eliminar", key=f"del_{sk}"):
+                if st.button("🗑️ Eliminar",key=f"del_{sk}"):
                     try:
                         for c in edited_grp[edited_grp["Sel"]==True]["code"].tolist():
                             conn.execute("DELETE FROM articles WHERE code=?",(c,))
-                        conn.commit()
-                        st.success("✅ Eliminado."); _clear_cache(); time.sleep(0.5); st.rerun()
+                        conn.commit(); st.success("✅ Eliminado."); _clear_cache(); time.sleep(0.5); st.rerun()
                     except: pass
     conn.close()
 
-# ============================================================================
-# PÁGINA 3 — ENTRADAS
-# ============================================================================
-
 def pagina_entradas():
-    _banner()
-    st.title("📥 Entradas")
-
-    conn = get_db()
-    df_arts, df_provs, _ = _load_base(conn)
-    current_user = st.session_state.usuario_actual or "usuario"
-
-    list_articles_full  = [x for x in df_arts['display_full']  if x]
-    list_providers_full = [x for x in df_provs['display_full'] if x]
-
-    df = pd.read_sql(
-        "SELECT id,entry_code,date,provider_name,provider_code,article_name,article_code,quantity FROM stock_entries ORDER BY date DESC,id DESC",
-        conn)
-    df['date']           = pd.to_datetime(df['date'], dayfirst=True, errors='coerce')
-    df['quantity']       = pd.to_numeric(df['quantity'], errors='coerce').fillna(0)
-    df['entry_code']     = df['entry_code'].apply(_sc)
-    df['provider_mixed'] = df.apply(lambda x: _fmt_mixed(x['provider_code'], x['provider_name']), axis=1)
-    df['article_mixed']  = df.apply(lambda x: _fmt_mixed(x['article_code'],  x['article_name']),  axis=1)
-
-    with st.expander("➕ Añadir Nueva Entrada", expanded=False):
-        ce1,ce2,ce3,ce4,ce5 = st.columns(5)
-        ne_code = ce1.text_input("Cód. Entrada", key="ne_code")
-        ne_date = ce2.date_input("Fecha", value=datetime.date.today(), key="ne_date")
-        ne_prov = ce3.selectbox("Proveedor", [""]+list_providers_full, key="ne_prov")
-        ne_art  = ce4.selectbox("Artículo",  [""]+list_articles_full,  key="ne_art")
-        ne_qty  = ce5.number_input("Cantidad", min_value=1, step=1, key="ne_qty")
-        if st.button("Guardar Entrada", key="btn_ent_add"):
+    _banner(); st.title("📥 Entradas")
+    conn=get_db(); df_arts,df_provs,_=_load_base(conn); current_user=st.session_state.usuario_actual or "usuario"
+    list_articles_full=[x for x in df_arts['display_full'] if x]; list_providers_full=[x for x in df_provs['display_full'] if x]
+    df=pd.read_sql("SELECT id,entry_code,date,provider_name,provider_code,article_name,article_code,quantity FROM stock_entries ORDER BY date DESC,id DESC",conn)
+    df['date']=pd.to_datetime(df['date'],dayfirst=True,errors='coerce'); df['quantity']=pd.to_numeric(df['quantity'],errors='coerce').fillna(0)
+    df['entry_code']=df['entry_code'].apply(_sc)
+    df['provider_mixed']=df.apply(lambda x:_fmt_mixed(x['provider_code'],x['provider_name']),axis=1)
+    df['article_mixed']=df.apply(lambda x:_fmt_mixed(x['article_code'],x['article_name']),axis=1)
+    with st.expander("➕ Añadir Nueva Entrada",expanded=False):
+        ce1,ce2,ce3,ce4,ce5=st.columns(5)
+        ne_code=ce1.text_input("Cód. Entrada",key="ne_code"); ne_date=ce2.date_input("Fecha",value=datetime.date.today(),key="ne_date")
+        ne_prov=ce3.selectbox("Proveedor",[""]+list_providers_full,key="ne_prov"); ne_art=ce4.selectbox("Artículo",[""]+list_articles_full,key="ne_art")
+        ne_qty=ce5.number_input("Cantidad",min_value=1,step=1,key="ne_qty")
+        if st.button("Guardar Entrada",key="btn_ent_add"):
             if ne_art and ne_qty>0:
                 pc,pn="",""; ac,an="",""
                 if ne_prov:
@@ -896,53 +795,41 @@ def pagina_entradas():
                     pts=ne_art.split(' / ',1)
                     if len(pts)==2: ac,an=pts
                 try:
-                    conn.execute(
-                        "INSERT INTO stock_entries (entry_code,date,provider_name,provider_code,article_name,article_code,quantity,last_modified_by) VALUES (?,?,?,?,?,?,?,?)",
-                        (ne_code.strip() or None,ne_date.strftime("%d-%m-%Y"),pn,pc,an,ac,ne_qty,current_user))
-                    conn.commit(); _sync_stock(conn)
-                    st.success("✅ Entrada guardada."); _clear_cache(); time.sleep(0.4); st.rerun()
+                    conn.execute("INSERT INTO stock_entries (entry_code,date,provider_name,provider_code,article_name,article_code,quantity,last_modified_by) VALUES (?,?,?,?,?,?,?,?)",(ne_code.strip() or None,ne_date.strftime("%d-%m-%Y"),pn,pc,an,ac,ne_qty,current_user))
+                    conn.commit(); _sync_stock(conn); st.success("✅ Entrada guardada."); _clear_cache(); time.sleep(0.4); st.rerun()
                 except Exception as e: st.error(f"Error: {e}")
             else: st.warning("Selecciona artículo y cantidad.")
-
     st.markdown("#### 🔎 Filtros")
-    ff1,ff2,ff3,ff4 = st.columns(4)
-    with ff1: fe_date = st.date_input("📅 Rango:", value=[], key="fe_date")
-    with ff2: fe_code = st.multiselect("🔢 Código:",    options=sorted([c for c in df['entry_code'].unique()    if c]), key="fe_cod")
-    with ff3: fe_prov = st.multiselect("🏢 Proveedor:", options=sorted([p for p in df['provider_mixed'].unique() if p]), key="fe_prov")
-    with ff4: fe_art  = st.multiselect("📦 Artículo:",  options=sorted([a for a in df['article_mixed'].unique()  if a]), key="fe_art")
-
-    dv = df.copy()
+    ff1,ff2,ff3,ff4=st.columns(4)
+    with ff1: fe_date=st.date_input("📅 Rango:",value=[],key="fe_date")
+    with ff2: fe_code=st.multiselect("🔢 Código:",options=sorted([c for c in df['entry_code'].unique() if c]),key="fe_cod")
+    with ff3: fe_prov=st.multiselect("🏢 Proveedor:",options=sorted([p for p in df['provider_mixed'].unique() if p]),key="fe_prov")
+    with ff4: fe_art=st.multiselect("📦 Artículo:",options=sorted([a for a in df['article_mixed'].unique() if a]),key="fe_art")
+    dv=df.copy()
     if fe_date and len(fe_date)==2: dv=dv[dv['date'].dt.date.between(fe_date[0],fe_date[1]).fillna(False)]
     elif fe_date and len(fe_date)==1: dv=dv[(dv['date'].dt.date==fe_date[0]).fillna(False)]
     if fe_code: dv=dv[dv['entry_code'].isin(fe_code)]
     if fe_prov: dv=dv[dv['provider_mixed'].isin(fe_prov)]
-    if fe_art:  dv=dv[dv['article_mixed'].isin(fe_art)]
+    if fe_art: dv=dv[dv['article_mixed'].isin(fe_art)]
     st.caption(f"Mostrando **{len(dv)}** entradas")
-
-    map_ent={"entry_code":"Cód.","date":"Fecha","provider_name":"Proveedor",
-             "article_code":"Cód.Art.","article_name":"Artículo","quantity":"Cantidad"}
+    map_ent={"entry_code":"Cód.","date":"Fecha","provider_name":"Proveedor","article_code":"Cód.Art.","article_name":"Artículo","quantity":"Cantidad"}
     cx1,cx2=st.columns([3,1])
     with cx1: cs_ent=st.multiselect("📊 Columnas exportar:",options=list(map_ent.values()),default=list(map_ent.values()),key="cs_ent")
     with cx2:
         if cs_ent:
-            imap={v:k for k,v in map_ent.items()}
-            df_ex=dv[[imap[v] for v in cs_ent if v in imap]].copy()
+            imap={v:k for k,v in map_ent.items()}; df_ex=dv[[imap[v] for v in cs_ent if v in imap]].copy()
             if 'date' in df_ex.columns: df_ex['date']=df_ex['date'].dt.strftime('%d-%m-%Y')
             df_ex.rename(columns=map_ent,inplace=True)
             st.download_button("📥 Excel",data=_to_excel(df_ex),file_name="entradas.xlsx",mime="application/vnd.ms-excel")
-
     dv.insert(0,"Sel",False)
     ed_ent=st.data_editor(dv,num_rows="dynamic",key="ed_ent",column_config={
-        "Sel":st.column_config.CheckboxColumn("✅",width="small"),
-        "id":{"hidden":True},"provider_code":{"hidden":True},"provider_name":{"hidden":True},
-        "article_code":{"hidden":True},"article_name":{"hidden":True},
-        "entry_code":    st.column_config.TextColumn("Código"),
-        "date":          st.column_config.DateColumn("Fecha",format="DD-MM-YYYY"),
+        "Sel":st.column_config.CheckboxColumn("✅",width="small"),"id":{"hidden":True},
+        "provider_code":{"hidden":True},"provider_name":{"hidden":True},"article_code":{"hidden":True},"article_name":{"hidden":True},
+        "entry_code":st.column_config.TextColumn("Código"),"date":st.column_config.DateColumn("Fecha",format="DD-MM-YYYY"),
         "provider_mixed":st.column_config.SelectboxColumn("Proveedor",options=list_providers_full,width="medium"),
-        "article_mixed": st.column_config.SelectboxColumn("Artículo", options=list_articles_full, width="medium"),
-        "quantity":      st.column_config.NumberColumn("Cant."),
+        "article_mixed":st.column_config.SelectboxColumn("Artículo",options=list_articles_full,width="medium"),
+        "quantity":st.column_config.NumberColumn("Cant."),
     },use_container_width=True)
-
     cs1,cs2=st.columns(2)
     with cs1:
         if st.button("💾 Guardar cambios",key="save_ent",type="primary"):
@@ -957,65 +844,41 @@ def pagina_entradas():
                         if len(pts)==2: ac,an=pts
                     ds=_fd(row['date'])
                     if pd.isna(row['id']):
-                        conn.execute("INSERT INTO stock_entries (entry_code,date,provider_name,provider_code,article_name,article_code,quantity,last_modified_by) VALUES (?,?,?,?,?,?,?,?)",
-                                     (row['entry_code'] or None,ds,pn,pc,an,ac,row['quantity'],current_user))
+                        conn.execute("INSERT INTO stock_entries (entry_code,date,provider_name,provider_code,article_name,article_code,quantity,last_modified_by) VALUES (?,?,?,?,?,?,?,?)",(row['entry_code'] or None,ds,pn,pc,an,ac,row['quantity'],current_user))
                     else:
-                        conn.execute("UPDATE stock_entries SET entry_code=?,date=?,provider_name=?,provider_code=?,article_name=?,article_code=?,quantity=?,last_modified_by=? WHERE id=?",
-                                     (row['entry_code'] or None,ds,pn,pc,an,ac,row['quantity'],current_user,row['id']))
-                conn.commit(); _sync_stock(conn)
-                st.success("✅ Guardado."); _clear_cache(); time.sleep(0.4); st.rerun()
+                        conn.execute("UPDATE stock_entries SET entry_code=?,date=?,provider_name=?,provider_code=?,article_name=?,article_code=?,quantity=?,last_modified_by=? WHERE id=?",(row['entry_code'] or None,ds,pn,pc,an,ac,row['quantity'],current_user,row['id']))
+                conn.commit(); _sync_stock(conn); st.success("✅ Guardado."); _clear_cache(); time.sleep(0.4); st.rerun()
             except Exception as e: st.error(f"Error: {e}")
     with cs2:
         if st.button("🗑️ Eliminar seleccionados",key="del_ent"):
             try:
                 for i in ed_ent[ed_ent["Sel"]==True]["id"].dropna().tolist():
                     conn.execute("DELETE FROM stock_entries WHERE id=?",(i,))
-                conn.commit(); _sync_stock(conn)
-                st.success("✅ Eliminado."); _clear_cache(); time.sleep(0.4); st.rerun()
+                conn.commit(); _sync_stock(conn); st.success("✅ Eliminado."); _clear_cache(); time.sleep(0.4); st.rerun()
             except: pass
     conn.close()
 
-# ============================================================================
-# PÁGINA 4 — SALIDAS
-# ============================================================================
-
 def pagina_salidas():
-    _banner()
-    st.title("📤 Salidas")
-
-    conn = get_db()
-    df_arts, _, df_clis = _load_base(conn)
-    current_user = st.session_state.usuario_actual or "usuario"
-
-    list_articles_full = [x for x in df_arts['display_full'] if x]
-    list_clients_full  = [x for x in df_clis['display_full']  if x]
-    list_responsibles  = [x for x in df_clis.apply(
-        lambda r: f"{r['name'] or ''} {r['surname'] or ''}".strip(), axis=1).unique() if x]
-    sede_resp_map = {}
-    for _, row in df_clis.iterrows():
-        fn = f"{row['name'] or ''} {row['surname'] or ''}".strip()
+    _banner(); st.title("📤 Salidas")
+    conn=get_db(); df_arts,_,df_clis=_load_base(conn); current_user=st.session_state.usuario_actual or "usuario"
+    list_articles_full=[x for x in df_arts['display_full'] if x]; list_clients_full=[x for x in df_clis['display_full'] if x]
+    list_responsibles=[x for x in df_clis.apply(lambda r:f"{r['name'] or ''} {r['surname'] or ''}".strip(),axis=1).unique() if x]
+    sede_resp_map={}
+    for _,row in df_clis.iterrows():
+        fn=f"{row['name'] or ''} {row['surname'] or ''}".strip()
         if row['fiscal_name'] not in sede_resp_map: sede_resp_map[row['fiscal_name']]=[]
         if fn: sede_resp_map[row['fiscal_name']].append(fn)
-
-    df = pd.read_sql(
-        "SELECT id,exit_code,date,client_name,client_code,article_name,article_code,quantity,delivered_to FROM stock_exits",
-        conn)
-    df['date']          = pd.to_datetime(df['date'], dayfirst=True, errors='coerce')
-    df['quantity']      = pd.to_numeric(df['quantity'], errors='coerce').fillna(0)
-    df['exit_code']     = df['exit_code'].apply(_sc)
-    df = _sort_nat(df,'exit_code')
-    df['client_mixed']  = df.apply(lambda x: _fmt_mixed(x['client_code'],  x['client_name']),  axis=1)
-    df['article_mixed'] = df.apply(lambda x: _fmt_mixed(x['article_code'], x['article_name']), axis=1)
-
-    with st.expander("➕ Añadir Nueva Salida", expanded=False):
-        cs1n,cs2n,cs3n,cs4n,cs5n,cs6n = st.columns(6)
-        ns_code = cs1n.text_input("Cód. Salida", key="ns_code")
-        ns_date = cs2n.date_input("Fecha", value=datetime.date.today(), key="ns_date")
-        ns_cli  = cs3n.selectbox("Cliente",    [""]+list_clients_full,  key="ns_cli")
-        ns_art  = cs4n.selectbox("Artículo",   [""]+list_articles_full, key="ns_art")
-        ns_qty  = cs5n.number_input("Cantidad", min_value=1, step=1,   key="ns_qty")
-        ns_resp = cs6n.selectbox("Responsable",[""]+list_responsibles,  key="ns_resp")
-        if st.button("Guardar Salida", key="btn_sal_add"):
+    df=pd.read_sql("SELECT id,exit_code,date,client_name,client_code,article_name,article_code,quantity,delivered_to FROM stock_exits",conn)
+    df['date']=pd.to_datetime(df['date'],dayfirst=True,errors='coerce'); df['quantity']=pd.to_numeric(df['quantity'],errors='coerce').fillna(0)
+    df['exit_code']=df['exit_code'].apply(_sc); df=_sort_nat(df,'exit_code')
+    df['client_mixed']=df.apply(lambda x:_fmt_mixed(x['client_code'],x['client_name']),axis=1)
+    df['article_mixed']=df.apply(lambda x:_fmt_mixed(x['article_code'],x['article_name']),axis=1)
+    with st.expander("➕ Añadir Nueva Salida",expanded=False):
+        cs1n,cs2n,cs3n,cs4n,cs5n,cs6n=st.columns(6)
+        ns_code=cs1n.text_input("Cód. Salida",key="ns_code"); ns_date=cs2n.date_input("Fecha",value=datetime.date.today(),key="ns_date")
+        ns_cli=cs3n.selectbox("Cliente",[""]+list_clients_full,key="ns_cli"); ns_art=cs4n.selectbox("Artículo",[""]+list_articles_full,key="ns_art")
+        ns_qty=cs5n.number_input("Cantidad",min_value=1,step=1,key="ns_qty"); ns_resp=cs6n.selectbox("Responsable",[""]+list_responsibles,key="ns_resp")
+        if st.button("Guardar Salida",key="btn_sal_add"):
             if ns_art and ns_qty>0:
                 cc,cn="",""; ac,an="",""
                 if ns_cli:
@@ -1028,59 +891,43 @@ def pagina_salidas():
                     cands=sede_resp_map.get(cn,[])
                     if len(cands)==1: ns_resp=cands[0]
                 try:
-                    conn.execute(
-                        "INSERT INTO stock_exits (exit_code,date,client_name,client_code,article_name,article_code,quantity,delivered_to,last_modified_by) VALUES (?,?,?,?,?,?,?,?,?)",
-                        (ns_code.strip() or None,ns_date.strftime("%d-%m-%Y"),
-                         cn,cc,an,ac,ns_qty,ns_resp,current_user))
-                    conn.commit(); _sync_stock(conn)
-                    st.success("✅ Salida guardada."); _clear_cache(); time.sleep(0.4); st.rerun()
+                    conn.execute("INSERT INTO stock_exits (exit_code,date,client_name,client_code,article_name,article_code,quantity,delivered_to,last_modified_by) VALUES (?,?,?,?,?,?,?,?,?)",(ns_code.strip() or None,ns_date.strftime("%d-%m-%Y"),cn,cc,an,ac,ns_qty,ns_resp,current_user))
+                    conn.commit(); _sync_stock(conn); st.success("✅ Salida guardada."); _clear_cache(); time.sleep(0.4); st.rerun()
                 except Exception as e: st.error(f"Error: {e}")
             else: st.warning("Selecciona artículo y cantidad.")
-
     st.markdown("#### 🔎 Filtros")
     sf1,sf2,sf3,sf4,sf5=st.columns(5)
     with sf1: fs_date=st.date_input("📅 Rango:",value=[],key="fs_date")
-    with sf2: fs_code=st.multiselect("🔢 Código:",     options=sorted([c for c in df['exit_code'].unique()    if c]),key="fs_cod")
-    with sf3: fs_cli =st.multiselect("🏢 Cliente:",    options=sorted([s for s in df['client_mixed'].unique()  if s]),key="fs_cli")
-    with sf4: fs_art =st.multiselect("📦 Artículo:",   options=sorted([a for a in df['article_mixed'].unique() if a]),key="fs_art")
-    with sf5: fs_resp=st.multiselect("👤 Responsable:",options=sorted([r for r in df['delivered_to'].unique()  if pd.notna(r) and r]),key="fs_resp")
-
+    with sf2: fs_code=st.multiselect("🔢 Código:",options=sorted([c for c in df['exit_code'].unique() if c]),key="fs_cod")
+    with sf3: fs_cli=st.multiselect("🏢 Cliente:",options=sorted([s for s in df['client_mixed'].unique() if s]),key="fs_cli")
+    with sf4: fs_art=st.multiselect("📦 Artículo:",options=sorted([a for a in df['article_mixed'].unique() if a]),key="fs_art")
+    with sf5: fs_resp=st.multiselect("👤 Responsable:",options=sorted([r for r in df['delivered_to'].unique() if pd.notna(r) and r]),key="fs_resp")
     dv=df.copy()
     if fs_date and len(fs_date)==2: dv=dv[dv['date'].dt.date.between(fs_date[0],fs_date[1]).fillna(False)]
     elif fs_date and len(fs_date)==1: dv=dv[(dv['date'].dt.date==fs_date[0]).fillna(False)]
     if fs_code: dv=dv[dv['exit_code'].isin(fs_code)]
-    if fs_cli:  dv=dv[dv['client_mixed'].isin(fs_cli)]
-    if fs_art:  dv=dv[dv['article_mixed'].isin(fs_art)]
+    if fs_cli: dv=dv[dv['client_mixed'].isin(fs_cli)]
+    if fs_art: dv=dv[dv['article_mixed'].isin(fs_art)]
     if fs_resp: dv=dv[dv['delivered_to'].isin(fs_resp)]
     st.caption(f"Mostrando **{len(dv)}** salidas")
-
-    map_ext={"exit_code":"Cód.","date":"Fecha","client_name":"Cliente",
-             "article_code":"Cód.Art.","article_name":"Artículo",
-             "quantity":"Cantidad","delivered_to":"Responsable"}
+    map_ext={"exit_code":"Cód.","date":"Fecha","client_name":"Cliente","article_code":"Cód.Art.","article_name":"Artículo","quantity":"Cantidad","delivered_to":"Responsable"}
     sx1,sx2=st.columns([3,1])
     with sx1: cs_ext=st.multiselect("📊 Columnas exportar:",options=list(map_ext.values()),default=list(map_ext.values()),key="cs_ext")
     with sx2:
         if cs_ext:
-            imap={v:k for k,v in map_ext.items()}
-            df_ex2=dv[[imap[v] for v in cs_ext if v in imap]].copy()
+            imap={v:k for k,v in map_ext.items()}; df_ex2=dv[[imap[v] for v in cs_ext if v in imap]].copy()
             if 'date' in df_ex2.columns: df_ex2['date']=df_ex2['date'].dt.strftime('%d-%m-%Y')
             df_ex2.rename(columns=map_ext,inplace=True)
-            st.download_button("📥 Excel",data=_to_excel(df_ex2),file_name="salidas.xlsx",
-                               mime="application/vnd.ms-excel",key="btn_exp_sal")
-
+            st.download_button("📥 Excel",data=_to_excel(df_ex2),file_name="salidas.xlsx",mime="application/vnd.ms-excel",key="btn_exp_sal")
     dv.insert(0,"Sel",False)
     ed_sal=st.data_editor(dv,num_rows="dynamic",key="ed_sal",column_config={
-        "Sel":st.column_config.CheckboxColumn("✅",width="small"),
-        "id":{"hidden":True},"client_code":{"hidden":True},"client_name":{"hidden":True},
-        "article_code":{"hidden":True},"article_name":{"hidden":True},
-        "exit_code":    st.column_config.TextColumn("Código"),
-        "date":         st.column_config.DateColumn("Fecha",format="DD-MM-YYYY"),
-        "client_mixed": st.column_config.SelectboxColumn("Cliente",   options=list_clients_full,  width="medium"),
-        "article_mixed":st.column_config.SelectboxColumn("Artículo",  options=list_articles_full, width="medium"),
-        "quantity":     st.column_config.NumberColumn("Cant."),
-        "delivered_to": st.column_config.SelectboxColumn("Responsable",options=list_responsibles),
+        "Sel":st.column_config.CheckboxColumn("✅",width="small"),"id":{"hidden":True},
+        "client_code":{"hidden":True},"client_name":{"hidden":True},"article_code":{"hidden":True},"article_name":{"hidden":True},
+        "exit_code":st.column_config.TextColumn("Código"),"date":st.column_config.DateColumn("Fecha",format="DD-MM-YYYY"),
+        "client_mixed":st.column_config.SelectboxColumn("Cliente",options=list_clients_full,width="medium"),
+        "article_mixed":st.column_config.SelectboxColumn("Artículo",options=list_articles_full,width="medium"),
+        "quantity":st.column_config.NumberColumn("Cant."),"delivered_to":st.column_config.SelectboxColumn("Responsable",options=list_responsibles),
     },use_container_width=True)
-
     ss1,ss2=st.columns(2)
     with ss1:
         if st.button("💾 Guardar cambios",key="save_sal",type="primary"):
@@ -1098,26 +945,22 @@ def pagina_salidas():
                         cands=sede_resp_map.get(cn,[])
                         if len(cands)==1: fr=cands[0]
                     if pd.isna(row['id']):
-                        conn.execute("INSERT INTO stock_exits (exit_code,date,client_name,client_code,article_name,article_code,quantity,delivered_to,last_modified_by) VALUES (?,?,?,?,?,?,?,?,?)",
-                                     (row['exit_code'] or None,ds,cn,cc,an,ac,row['quantity'],fr,current_user))
+                        conn.execute("INSERT INTO stock_exits (exit_code,date,client_name,client_code,article_name,article_code,quantity,delivered_to,last_modified_by) VALUES (?,?,?,?,?,?,?,?,?)",(row['exit_code'] or None,ds,cn,cc,an,ac,row['quantity'],fr,current_user))
                     else:
-                        conn.execute("UPDATE stock_exits SET exit_code=?,date=?,client_name=?,client_code=?,article_name=?,article_code=?,quantity=?,delivered_to=?,last_modified_by=? WHERE id=?",
-                                     (row['exit_code'] or None,ds,cn,cc,an,ac,row['quantity'],fr,current_user,row['id']))
-                conn.commit(); _sync_stock(conn)
-                st.success("✅ Guardado."); _clear_cache(); time.sleep(0.4); st.rerun()
+                        conn.execute("UPDATE stock_exits SET exit_code=?,date=?,client_name=?,client_code=?,article_name=?,article_code=?,quantity=?,delivered_to=?,last_modified_by=? WHERE id=?",(row['exit_code'] or None,ds,cn,cc,an,ac,row['quantity'],fr,current_user,row['id']))
+                conn.commit(); _sync_stock(conn); st.success("✅ Guardado."); _clear_cache(); time.sleep(0.4); st.rerun()
             except Exception as e: st.error(f"Error: {e}")
     with ss2:
         if st.button("🗑️ Eliminar seleccionados",key="del_sal"):
             try:
                 for i in ed_sal[ed_sal["Sel"]==True]["id"].dropna().tolist():
                     conn.execute("DELETE FROM stock_exits WHERE id=?",(i,))
-                conn.commit(); _sync_stock(conn)
-                st.success("✅ Eliminado."); _clear_cache(); time.sleep(0.4); st.rerun()
+                conn.commit(); _sync_stock(conn); st.success("✅ Eliminado."); _clear_cache(); time.sleep(0.4); st.rerun()
             except: pass
     conn.close()
 
 # ============================================================================
-# PÁGINA 5 — CONFIGURACIÓN (incluye gestión de revisiones)
+# PÁGINA 5 — CONFIGURACIÓN
 # ============================================================================
 
 def pagina_configuracion():
@@ -1129,12 +972,11 @@ def pagina_configuracion():
     # ── TAB 1: REVISIONES ────────────────────────────────────────────
     with tab_rev:
         st.markdown("### 📁 Revisiones guardadas")
-        st.markdown("Sube archivos PDF o CSV y guárdalos como una revisión con nombre y fecha automáticos.")
+        st.markdown("Sube archivos **PDF, CSV o XLSX** y guárdalos como una revisión con nombre automático.")
 
-        # Uploader en la parte superior
         archivos_subidos = st.file_uploader(
-            "📎 Arrastra aquí tus archivos PDF o CSV",
-            type=["pdf", "csv"],
+            "📎 Arrastra aquí tus archivos (PDF, CSV, XLSX)",
+            type=["pdf", "csv", "xlsx"],          # ← XLSX añadido
             accept_multiple_files=True,
             key="rev_uploader"
         )
@@ -1160,72 +1002,62 @@ def pagina_configuracion():
                     st.rerun()
 
         st.markdown("---")
-
-        # Lista de revisiones existentes
         revisiones = listar_revisiones()
         if not revisiones:
             st.info("No hay revisiones guardadas aún.")
         else:
             st.markdown(f"**{len(revisiones)} revisión(es) guardada(s):**")
             for carpeta in revisiones:
-                meta    = leer_meta(carpeta)
+                meta     = leer_meta(carpeta)
                 archivos = archivos_de_revision(carpeta)
                 n_archs  = len(archivos)
 
-                with st.container():
-                    st.markdown(f"""
-                    <div class="revision-card">
-                        <div class="revision-nombre">📁 {meta['nombre']}</div>
-                        <div class="revision-meta">🕐 Creada: {meta['creada']} &nbsp;|&nbsp; 📄 {n_archs} archivo(s)</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                st.markdown(f"""
+                <div class="revision-card">
+                    <div class="revision-nombre">📁 {meta['nombre']}</div>
+                    <div class="revision-meta">🕐 Creada: {meta['creada']} &nbsp;|&nbsp; 📄 {n_archs} archivo(s)</div>
+                </div>
+                """, unsafe_allow_html=True)
 
-                    c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
+                c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
+                with c1:
+                    if archivos:
+                        st.caption("📄 " + ", ".join(p.name for p in archivos))
+                with c2:
+                    nuevo_nom = st.text_input("", placeholder="Nuevo nombre…",
+                                              key=f"ren_{carpeta.name}",
+                                              label_visibility="collapsed")
+                with c3:
+                    if st.button("✏️ Renombrar", key=f"btn_ren_{carpeta.name}"):
+                        if nuevo_nom.strip():
+                            renombrar_revision(carpeta, nuevo_nom.strip())
+                            st.success("✅ Renombrada."); st.rerun()
+                        else:
+                            st.warning("Escribe el nuevo nombre.")
+                with c4:
+                    if st.button("🗑️ Eliminar", key=f"btn_del_{carpeta.name}"):
+                        eliminar_revision(carpeta)
+                        st.success("🗑️ Revisión eliminada."); st.rerun()
 
-                    with c1:
-                        # Mostrar archivos de la revisión
-                        if archivos:
-                            nombres_arch = ", ".join(p.name for p in archivos)
-                            st.caption(f"📄 {nombres_arch}")
-
-                    with c2:
-                        # Renombrar
-                        nuevo_nom = st.text_input("", placeholder="Nuevo nombre…",
-                                                  key=f"ren_{carpeta.name}",
-                                                  label_visibility="collapsed")
-                    with c3:
-                        if st.button("✏️ Renombrar", key=f"btn_ren_{carpeta.name}"):
-                            if nuevo_nom.strip():
-                                renombrar_revision(carpeta, nuevo_nom.strip())
-                                st.success("✅ Renombrada."); st.rerun()
-                            else:
-                                st.warning("Escribe el nuevo nombre.")
-                    with c4:
-                        if st.button("🗑️ Eliminar", key=f"btn_del_{carpeta.name}"):
-                            eliminar_revision(carpeta)
-                            st.success("🗑️ Revisión eliminada."); st.rerun()
-
-                    # Añadir más archivos a revisión existente
-                    with st.expander(f"➕ Añadir archivos a esta revisión", expanded=False):
-                        extra = st.file_uploader(
-                            "Arrastra PDF o CSV",
-                            type=["pdf","csv"],
-                            accept_multiple_files=True,
-                            key=f"extra_{carpeta.name}"
-                        )
-                        if st.button("Añadir a revisión", key=f"btn_add_{carpeta.name}"):
-                            if extra:
-                                for f in extra:
-                                    dest = carpeta / f.name
-                                    with open(dest, "wb") as out:
-                                        out.write(f.read())
-                                st.success(f"✅ {len(extra)} archivo(s) añadido(s)."); st.rerun()
-                            else:
-                                st.warning("Selecciona al menos un archivo.")
+                with st.expander(f"➕ Añadir archivos a esta revisión", expanded=False):
+                    extra = st.file_uploader(
+                        "Arrastra PDF, CSV o XLSX",
+                        type=["pdf", "csv", "xlsx"],   # ← XLSX añadido
+                        accept_multiple_files=True,
+                        key=f"extra_{carpeta.name}"
+                    )
+                    if st.button("Añadir a revisión", key=f"btn_add_{carpeta.name}"):
+                        if extra:
+                            for f in extra:
+                                with open(carpeta / f.name, "wb") as out:
+                                    out.write(f.read())
+                            st.success(f"✅ {len(extra)} archivo(s) añadido(s)."); st.rerun()
+                        else:
+                            st.warning("Selecciona al menos un archivo.")
 
                 st.markdown("<div style='margin-bottom:0.5rem'></div>", unsafe_allow_html=True)
 
-    # ── TAB 2: IMPORTACIÓN DE DATOS (Excel almacén) ──────────────────
+    # ── TAB 2: IMPORTACIÓN DE DATOS ──────────────────────────────────
     with tab_imp:
         st.markdown("### 📥 Importación de Datos")
         st.markdown("Sube un archivo Excel (.xlsx) con las hojas: Existencias, Clientes, Proveedores, Entradas, Salidas.")
@@ -1240,20 +1072,19 @@ def pagina_configuracion():
                     xls = pd.read_excel(u, sheet_name=None)
                     results = {"Existencias":0,"Clientes":0,"Proveedores":0,"Entradas":0,"Salidas":0}
 
-                    sn = next((s for s in xls if "existencia" in s.lower()), None)
+                    sn=next((s for s in xls if "existencia" in s.lower()),None)
                     if sn:
-                        df = xls[sn]; df.columns=[_nh(c) for c in df.columns]
+                        df=xls[sn]; df.columns=[_nh(c) for c in df.columns]
                         for _,row in df.iterrows():
                             code=_sc(row.get("codigo",""))
                             if not code: continue
                             ini=_ff(row.get("existencias iniciales",0)); ent=_ff(row.get("entradas",0)); sal=_ff(row.get("salidas",0))
                             try:
-                                conn.execute("INSERT OR IGNORE INTO articles (code,name,type,initial_stock,entries,exits,current_stock) VALUES (?,?,?,?,?,?,?)",
-                                             (code,row.get("nombre del articulo"),_classify(code),ini,ent,sal,ini+ent-sal))
+                                conn.execute("INSERT OR IGNORE INTO articles (code,name,type,initial_stock,entries,exits,current_stock) VALUES (?,?,?,?,?,?,?)",(code,row.get("nombre del articulo"),_classify(code),ini,ent,sal,ini+ent-sal))
                                 results["Existencias"]+=1
                             except: pass
 
-                    for sheet_key, table, rkey in [("cliente","clients","Clientes"),("proveedor","providers","Proveedores")]:
+                    for sheet_key,table,rkey in [("cliente","clients","Clientes"),("proveedor","providers","Proveedores")]:
                         sn=next((s for s in xls if sheet_key in s.lower()),None)
                         if sn:
                             df=xls[sn]; df.columns=[_nh(c) for c in df.columns]
@@ -1261,8 +1092,7 @@ def pagina_configuracion():
                                 code=_sc(row.get("codigo",""))
                                 if not code: continue
                                 try:
-                                    conn.execute(f"INSERT OR IGNORE INTO {table} (code,fiscal_name,name,surname,nif,phone,email,address,city,province,zip_code) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                                                 (code,row.get("nombre fiscal"),row.get("nombre"),row.get("apellidos"),row.get("nif/cif"),row.get("telefono"),row.get("e-mail"),row.get("direccion"),row.get("poblacion"),row.get("provincia"),_sc(row.get("codigo postal",""))))
+                                    conn.execute(f"INSERT OR IGNORE INTO {table} (code,fiscal_name,name,surname,nif,phone,email,address,city,province,zip_code) VALUES (?,?,?,?,?,?,?,?,?,?,?)",(code,row.get("nombre fiscal"),row.get("nombre"),row.get("apellidos"),row.get("nif/cif"),row.get("telefono"),row.get("e-mail"),row.get("direccion"),row.get("poblacion"),row.get("provincia"),_sc(row.get("codigo postal",""))))
                                     results[rkey]+=1
                                 except: pass
 
@@ -1273,8 +1103,7 @@ def pagina_configuracion():
                             code=_sc(row.get("codigo",""))
                             if not code: continue
                             try:
-                                conn.execute("INSERT OR IGNORE INTO stock_entries (entry_code,date,provider_code,provider_name,article_code,article_name,quantity,last_modified_by) VALUES (?,?,?,?,?,?,?,?)",
-                                             (code,_fd(row.get("fecha")),_sc(row.get("proveedor (codigo)","")),row.get("proveedor (nombre)"),_sc(row.get("articulo (codigo)","")),row.get("articulo (nombre)"),_ff(row.get("cantidad",0)),"import"))
+                                conn.execute("INSERT OR IGNORE INTO stock_entries (entry_code,date,provider_code,provider_name,article_code,article_name,quantity,last_modified_by) VALUES (?,?,?,?,?,?,?,?)",(code,_fd(row.get("fecha")),_sc(row.get("proveedor (codigo)","")),row.get("proveedor (nombre)"),_sc(row.get("articulo (codigo)","")),row.get("articulo (nombre)"),_ff(row.get("cantidad",0)),"import"))
                                 results["Entradas"]+=1
                             except: pass
 
@@ -1285,8 +1114,7 @@ def pagina_configuracion():
                             code=_sc(row.get("codigo",""))
                             if not code: continue
                             try:
-                                conn.execute("INSERT OR IGNORE INTO stock_exits (exit_code,date,client_code,client_name,article_code,article_name,quantity,price,delivered_to,last_modified_by) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                                             (code,_fd(row.get("fecha")),_sc(row.get("cliente (codigo)","")),row.get("cliente (nombre)"),_sc(row.get("articulo (codigo)","")),row.get("articulo (nombre)"),_ff(row.get("cantidad",0)),row.get("precio"),row.get("entregado a"),"import"))
+                                conn.execute("INSERT OR IGNORE INTO stock_exits (exit_code,date,client_code,client_name,article_code,article_name,quantity,price,delivered_to,last_modified_by) VALUES (?,?,?,?,?,?,?,?,?,?)",(code,_fd(row.get("fecha")),_sc(row.get("cliente (codigo)","")),row.get("cliente (nombre)"),_sc(row.get("articulo (codigo)","")),row.get("articulo (nombre)"),_ff(row.get("cantidad",0)),row.get("precio"),row.get("entregado a"),"import"))
                                 results["Salidas"]+=1
                             except: pass
 
@@ -1294,8 +1122,7 @@ def pagina_configuracion():
                     conn.execute("INSERT INTO demo_loaded (id) VALUES (1)")
                     conn.commit()
                     st.success("✅ Importación completada.")
-                    st.json(results)
-                    _clear_cache()
+                    st.json(results); _clear_cache()
                 except Exception as e:
                     st.error(f"Error: {e}")
                 finally:
@@ -1305,64 +1132,53 @@ def pagina_configuracion():
     with tab_usr:
         st.markdown("### 👥 Usuarios registrados")
         usuarios_actuales = cargar_usuarios()
-
         for uname, udata in list(usuarios_actuales.items()):
-            cu, cn, cr, cd = st.columns([2,2,1,1])
+            cu,cn,cr,cd=st.columns([2,2,1,1])
             with cu: st.markdown(f"**`{uname}`**")
             with cn: st.markdown(udata.get('nombre','—'))
             with cr:
-                icon = "🔑" if udata.get('rol')=='admin' else "👤"
+                icon="🔑" if udata.get('rol')=='admin' else "👤"
                 st.markdown(f"{icon} {udata.get('rol','usuario')}")
             with cd:
-                admins = [u for u,d in usuarios_actuales.items() if d.get('rol')=='admin']
-                puede  = not (uname==st.session_state.usuario_actual or
-                              (udata.get('rol')=='admin' and len(admins)<=1))
+                admins=[u for u,d in usuarios_actuales.items() if d.get('rol')=='admin']
+                puede=not (uname==st.session_state.usuario_actual or (udata.get('rol')=='admin' and len(admins)<=1))
                 if puede:
-                    if st.button("🗑️", key=f"del_u_{uname}", help=f"Eliminar {uname}"):
-                        del usuarios_actuales[uname]
-                        guardar_usuarios(usuarios_actuales)
+                    if st.button("🗑️",key=f"del_u_{uname}",help=f"Eliminar {uname}"):
+                        del usuarios_actuales[uname]; guardar_usuarios(usuarios_actuales)
                         st.success(f"Usuario **{uname}** eliminado."); st.rerun()
                 else: st.markdown("—")
-
         st.markdown("---")
         st.markdown("### 🔑 Cambiar contraseña")
-        ca, cb = st.columns(2)
-        with ca: usr_c = st.selectbox("Usuario", options=list(usuarios_actuales.keys()), key="c_usr")
-        with cb: np1   = st.text_input("Nueva contraseña", type="password", key="np1")
-        np2 = st.text_input("Confirmar contraseña", type="password", key="np2")
-        if st.button("💾 Guardar contraseña", use_container_width=True):
-            if not np1:      st.error("La contraseña no puede estar vacía.")
-            elif np1!=np2:   st.error("Las contraseñas no coinciden.")
+        ca,cb=st.columns(2)
+        with ca: usr_c=st.selectbox("Usuario",options=list(usuarios_actuales.keys()),key="c_usr")
+        with cb: np1=st.text_input("Nueva contraseña",type="password",key="np1")
+        np2=st.text_input("Confirmar contraseña",type="password",key="np2")
+        if st.button("💾 Guardar contraseña",use_container_width=True):
+            if not np1: st.error("La contraseña no puede estar vacía.")
+            elif np1!=np2: st.error("Las contraseñas no coinciden.")
             elif len(np1)<6: st.error("Mínimo 6 caracteres.")
             else:
-                usuarios_actuales[usr_c]['password_hash'] = hash_password(np1)
-                guardar_usuarios(usuarios_actuales)
-                st.success(f"✅ Contraseña de **{usr_c}** actualizada.")
-
+                usuarios_actuales[usr_c]['password_hash']=hash_password(np1)
+                guardar_usuarios(usuarios_actuales); st.success(f"✅ Contraseña de **{usr_c}** actualizada.")
         st.markdown("---")
         st.markdown("### ➕ Añadir nuevo usuario")
-        c1, c2 = st.columns(2)
+        c1,c2=st.columns(2)
         with c1:
-            nu_user = st.text_input("Nombre de usuario", placeholder="ej: usuario1", key="nu_user")
-            nu_name = st.text_input("Nombre completo",   placeholder="ej: Ana Pérez",  key="nu_name")
+            nu_user=st.text_input("Nombre de usuario",placeholder="ej: usuario1",key="nu_user")
+            nu_name=st.text_input("Nombre completo",placeholder="ej: Ana Pérez",key="nu_name")
         with c2:
-            nu_pass = st.text_input("Contraseña", type="password", key="nu_pass")
-            nu_rol  = st.selectbox("Rol", options=["usuario","admin"], key="nu_rol")
-        if st.button("➕ Crear usuario", use_container_width=True):
-            nu = nu_user.strip()
-            if not nu:                                      st.error("El nombre no puede estar vacío.")
-            elif nu in usuarios_actuales:                   st.error(f"El usuario **{nu}** ya existe.")
-            elif not nu_pass:                               st.error("La contraseña no puede estar vacía.")
-            elif len(nu_pass)<6:                            st.error("Mínimo 6 caracteres.")
-            elif not re.match(r'^[a-zA-Z0-9_\-\.]+$', nu): st.error("Solo letras, números, guiones y puntos.")
+            nu_pass=st.text_input("Contraseña",type="password",key="nu_pass")
+            nu_rol=st.selectbox("Rol",options=["usuario","admin"],key="nu_rol")
+        if st.button("➕ Crear usuario",use_container_width=True):
+            nu=nu_user.strip()
+            if not nu: st.error("El nombre no puede estar vacío.")
+            elif nu in usuarios_actuales: st.error(f"El usuario **{nu}** ya existe.")
+            elif not nu_pass: st.error("La contraseña no puede estar vacía.")
+            elif len(nu_pass)<6: st.error("Mínimo 6 caracteres.")
+            elif not re.match(r'^[a-zA-Z0-9_\-\.]+$',nu): st.error("Solo letras, números, guiones y puntos.")
             else:
-                usuarios_actuales[nu] = {
-                    "password_hash": hash_password(nu_pass),
-                    "nombre": nu_name.strip() or nu,
-                    "rol": nu_rol
-                }
-                guardar_usuarios(usuarios_actuales)
-                st.success(f"✅ Usuario **{nu}** creado."); st.rerun()
+                usuarios_actuales[nu]={"password_hash":hash_password(nu_pass),"nombre":nu_name.strip() or nu,"rol":nu_rol}
+                guardar_usuarios(usuarios_actuales); st.success(f"✅ Usuario **{nu}** creado."); st.rerun()
 
 # ============================================================================
 # MAIN
@@ -1373,11 +1189,9 @@ import time
 def main():
     init_db()
 
-    # ── Sidebar: uploader rápido + navegación ────────────────────────
     with st.sidebar:
         usuarios = cargar_usuarios()
-        nombre_mostrar = usuarios.get(st.session_state.usuario_actual, {}).get(
-            'nombre', st.session_state.usuario_actual)
+        nombre_mostrar = usuarios.get(st.session_state.usuario_actual, {}).get('nombre', st.session_state.usuario_actual)
         st.markdown(f"👤 **{nombre_mostrar}**")
         if st.button("🚪 Cerrar Sesión", use_container_width=True):
             for k in list(defaults.keys()):
@@ -1385,11 +1199,10 @@ def main():
             st.rerun()
         st.markdown("---")
 
-        # ── Uploader rápido en sidebar ───────────────────────────────
         st.markdown("**📎 Subida rápida**")
         archivos_sidebar = st.file_uploader(
-            "PDF o CSV",
-            type=["pdf", "csv"],
+            "PDF, CSV o XLSX",
+            type=["pdf", "csv", "xlsx"],           # ← XLSX añadido
             accept_multiple_files=True,
             key="sidebar_uploader",
             label_visibility="collapsed"
@@ -1415,7 +1228,6 @@ def main():
     })
 
     pg.run()
-
 
 if __name__ == "__main__":
     main()
