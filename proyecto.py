@@ -18,7 +18,7 @@ from datetime import datetime as dt
 # RUTAS
 # ============================================================================
 BASE_DIR         = Path(__file__).resolve().parent
-DIR_DISENO       = BASE_DIR / "logo"
+DIR_DISENO       = BASE_DIR / "logo" / "alcot_logo.png"
 ICONO_FILE       = DIR_DISENO / "alcot_logo.png"
 HEADER_MAIN_FILE = DIR_DISENO / "alcot_logo.png"
 CARPETA_REVISIONES = BASE_DIR / "revisiones"
@@ -84,7 +84,7 @@ for k,v in defaults.items():
     if k not in st.session_state: st.session_state[k]=v
         
 try:    favicon=Image.open(BASE_DIR / "logo" / "alcot_logo.png")
-except: favicon="alcot_logo.png"
+except: favicon="🖥️"
 st.set_page_config(page_title=APP_NAME, page_icon="alcot_logo.png", layout="wide", initial_sidebar_state="expanded")
 
 # ============================================================================
