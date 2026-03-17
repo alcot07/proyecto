@@ -3,6 +3,7 @@ import pdfplumber
 import pandas as pd
 import re
 import io
+import traceback
 import shutil
 import hashlib
 import json
@@ -16,14 +17,16 @@ from datetime import datetime as dt
 # ============================================================================
 # RUTAS
 # ============================================================================
-BASE_DIR           = Path(__file__).resolve().parent
+BASE_DIR         = Path(__file__).resolve().parent
+DIR_DISENO       = BASE_DIR / "diseño"
+ICONO_FILE       = DIR_DISENO / "ada-icono (1).png"
+HEADER_MAIN_FILE = DIR_DISENO / "ADA-vc-color (1).jpg"
 CARPETA_REVISIONES = BASE_DIR / "revisiones"
 CARPETA_REVISIONES.mkdir(exist_ok=True)
-USUARIOS_FILE      = BASE_DIR / "usuarios.json"
-DATA_DIR           = BASE_DIR / "data"
+USUARIOS_FILE    = BASE_DIR / "usuarios.json"
+DATA_DIR         = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
-DB_FILE            = DATA_DIR / "inventory_shared.db"
-LOGO_FILE          = BASE_DIR / "alcot_logo.png"
+DB_FILE          = DATA_DIR / "inventory_shared.db"
 
 GROUPS_CONFIG = {
     "Discos duros": {"cat": "Almacenamiento"},
@@ -37,6 +40,21 @@ GROUPS_CONFIG = {
 }
 
 APP_NAME = "Alcot's & Co."
+
+LOGO_SVG = """
+<svg width="100%" viewBox="0 0 680 290" xmlns="http://www.w3.org/2000/svg">
+<rect x="0" y="0" width="680" height="280" fill="#0d1b2a" rx="16"/>
+<g transform="translate(340,80)">
+  <polygon points="-54,54 0,-54 0,0" fill="none" stroke="#7fff00" stroke-width="5" stroke-linejoin="round"/>
+  <polygon points="54,54 0,-54 0,0" fill="none" stroke="#39d353" stroke-width="5" stroke-linejoin="round"/>
+  <polygon points="0,-54 28,0 0,20 -28,0" fill="#39d353" opacity="0.25"/>
+  <line x1="0" y1="-54" x2="0" y2="54" stroke="#7fff00" stroke-width="3"/>
+  <line x1="-54" y1="54" x2="54" y2="54" stroke="#39d353" stroke-width="5" stroke-linecap="round"/>
+</g>
+<text x="340" y="195" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="48" letter-spacing="6" fill="#7fff00">ALCOT</text>
+<text x="340" y="245" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="28" letter-spacing="8" fill="#39d353">&amp; CO</text>
+</svg>
+"""
 
 # ============================================================================
 # GESTIÓN DE USUARIOS
@@ -65,58 +83,150 @@ defaults={'autenticado':False,'usuario_actual':None}
 for k,v in defaults.items():
     if k not in st.session_state: st.session_state[k]=v
 
-try:    logo_icon=Image.open(LOGO_FILE)
-except: logo_icon=None
-
-st.set_page_config(page_title=APP_NAME, page_icon=logo_icon, layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title=APP_NAME, page_icon="🖥️", layout="wide", initial_sidebar_state="expanded")
 
 # ============================================================================
-# CSS
+# CSS — colores del logo (#0d1b2a fondo, #7fff00 lima, #39d353 verde)
 # ============================================================================
 st.markdown("""
 <style>
 :root{
-    --bg-dark:#0d1b2a;
-    --lima:#7fff00;
-    --verde:#39d353;
-    --verde-dim:#2aad3e;
-    --texto:#e8f5e9;
+    --bg-dark:   #0d1b2a;
+    --lima:      #7fff00;
+    --verde:     #39d353;
+    --verde-dim: #2aad3e;
+    --texto:     #e8f5e9;
 }
-header[data-testid="stHeader"]{background-color:var(--bg-dark) !important;border-bottom:3px solid var(--lima) !important;}
+
+/* ── Header ── */
+header[data-testid="stHeader"]{
+    background-color: var(--bg-dark) !important;
+    border-bottom: 3px solid var(--lima) !important;
+}
 header::after{display:none !important;}
-section[data-testid="stSidebar"]{background-color:var(--bg-dark) !important;border-right:2px solid var(--verde) !important;padding-top:1rem;}
+
+/* ── Sidebar ── */
+section[data-testid="stSidebar"]{
+    background-color: var(--bg-dark) !important;
+    border-right: 2px solid var(--verde) !important;
+    padding-top: 1rem;
+}
 section[data-testid="stSidebar"]>div,
-section[data-testid="stSidebar"] [data-testid="stSidebarContent"]{background-color:var(--bg-dark) !important;}
-section[data-testid="stSidebar"] *,section[data-testid="stSidebar"] p,
-section[data-testid="stSidebar"] span,section[data-testid="stSidebar"] label,
-section[data-testid="stSidebar"] div,section[data-testid="stSidebar"] h1,
-section[data-testid="stSidebar"] h2,section[data-testid="stSidebar"] h3{color:var(--texto) !important;font-size:15px;}
-section[data-testid="stSidebar"] .stButton>button,section[data-testid="stSidebar"] button{
-    background-color:rgba(127,255,0,0.12) !important;color:var(--lima) !important;
-    border:1px solid rgba(127,255,0,0.4) !important;border-radius:6px !important;
-    font-size:13px !important;width:100% !important;box-shadow:none !important;}
+section[data-testid="stSidebar"] [data-testid="stSidebarContent"]{
+    background-color: var(--bg-dark) !important;
+}
+section[data-testid="stSidebar"] *,
+section[data-testid="stSidebar"] p,
+section[data-testid="stSidebar"] span,
+section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] div,
+section[data-testid="stSidebar"] h1,
+section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3{
+    color: var(--texto) !important; font-size:15px;
+}
+section[data-testid="stSidebar"] .stButton>button,
+section[data-testid="stSidebar"] button{
+    background-color: rgba(127,255,0,0.12) !important;
+    color: var(--lima) !important;
+    border: 1px solid rgba(127,255,0,0.4) !important;
+    border-radius: 6px !important;
+    font-size: 13px !important;
+    width: 100% !important;
+    box-shadow: none !important;
+}
 section[data-testid="stSidebar"] .stButton>button:hover,
-section[data-testid="stSidebar"] button:hover{background-color:rgba(127,255,0,0.25) !important;}
-section[data-testid="stSidebar"] button p{color:var(--lima) !important;font-size:13px !important;}
-section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"]{background-color:transparent !important;border-radius:6px !important;padding:0.4rem 0.6rem !important;transition:background 0.2s;}
-section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"]:hover{background-color:rgba(127,255,0,0.12) !important;}
-section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"][aria-current="page"]{background-color:rgba(57,211,83,0.2) !important;border-left:3px solid var(--lima) !important;font-weight:700 !important;}
+section[data-testid="stSidebar"] button:hover{
+    background-color: rgba(127,255,0,0.25) !important;
+}
+section[data-testid="stSidebar"] button p{color: var(--lima) !important; font-size:13px !important;}
+
+/* Nav links */
+section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"]{
+    background-color: transparent !important;
+    border-radius: 6px !important;
+    padding: 0.4rem 0.6rem !important;
+    transition: background 0.2s;
+}
+section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"]:hover{
+    background-color: rgba(127,255,0,0.12) !important;
+}
+section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"][aria-current="page"]{
+    background-color: rgba(57,211,83,0.2) !important;
+    border-left: 3px solid var(--lima) !important;
+    font-weight: 700 !important;
+}
 section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"] span,
-section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"] p{color:var(--texto) !important;}
-section[data-testid="stSidebar"] nav>div>p{color:rgba(127,255,0,0.55) !important;font-size:11px !important;text-transform:uppercase;letter-spacing:0.08em;font-weight:600 !important;}
-.main{padding:2rem;background-color:#f4fff4;}
-.main .stButton>button{background-color:var(--bg-dark);color:var(--lima);border:1px solid var(--verde);border-radius:6px;padding:0.5rem 1rem;font-weight:600;width:100%;}
-.main .stButton>button:hover{background-color:var(--verde-dim);color:#ffffff;}
-[data-testid="stMetric"]{background:var(--bg-dark);border-radius:10px;padding:1rem;border:1px solid var(--verde);}
-[data-testid="stMetricLabel"]{color:var(--texto) !important;}
-[data-testid="stMetricValue"]{color:var(--lima) !important;font-weight:900 !important;}
+section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"] p{
+    color: var(--texto) !important;
+}
+section[data-testid="stSidebar"] nav>div>p{
+    color: rgba(127,255,0,0.55) !important;
+    font-size: 11px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600 !important;
+}
+
+/* ── Main content ── */
+.main{padding:2rem; background-color:#f4fff4;}
+.main .stButton>button{
+    background-color: var(--bg-dark);
+    color: var(--lima);
+    border: 1px solid var(--verde);
+    border-radius: 6px;
+    padding: 0.5rem 1rem;
+    font-weight: 600;
+    width: 100%;
+}
+.main .stButton>button:hover{
+    background-color: var(--verde-dim);
+    color: #ffffff;
+}
+
+/* Métricas */
+[data-testid="stMetric"]{
+    background: var(--bg-dark);
+    border-radius: 10px;
+    padding: 1rem;
+    border: 1px solid var(--verde);
+}
+[data-testid="stMetricLabel"]{color: var(--texto) !important;}
+[data-testid="stMetricValue"]{color: var(--lima) !important; font-weight:900 !important;}
+
+/* Tabs */
+[data-testid="stTabs"] [data-testid="stTab"]{
+    color: var(--bg-dark) !important;
+    font-weight: 600;
+}
+[data-testid="stTabs"] [aria-selected="true"]{
+    border-bottom: 3px solid var(--lima) !important;
+    color: var(--bg-dark) !important;
+}
+
 input,textarea{border-radius:6px !important;}
 footer{visibility:hidden;}
-.login-box{max-width:420px;margin:3rem auto;padding:2.5rem 2rem;background:#0d1b2a;border-radius:12px;box-shadow:0 4px 32px rgba(127,255,0,0.15);border-top:5px solid #7fff00;}
-.login-box label,.login-box p,.login-box span{color:#e8f5e9 !important;}
-.revision-card{background:var(--bg-dark);border:1px solid rgba(57,211,83,0.4);border-left:4px solid var(--lima);border-radius:8px;padding:0.8rem 1rem;margin-bottom:0.5rem;}
-.revision-nombre{font-weight:700;color:var(--lima);font-size:1rem;}
-.revision-meta{font-size:0.8rem;color:rgba(255,255,255,0.55);margin-top:0.2rem;}
+
+/* Login */
+.login-box{
+    max-width:420px; margin:3rem auto; padding:2.5rem 2rem;
+    background:#0d1b2a; border-radius:12px;
+    box-shadow:0 4px 32px rgba(127,255,0,0.15);
+    border-top:5px solid #7fff00;
+}
+.login-box label, .login-box p, .login-box span{color:#e8f5e9 !important;}
+
+/* Revision card */
+.revision-card{
+    background: var(--bg-dark);
+    border: 1px solid rgba(57,211,83,0.4);
+    border-left: 4px solid var(--lima);
+    border-radius: 8px;
+    padding: 0.8rem 1rem;
+    margin-bottom: 0.5rem;
+}
+.revision-nombre{font-weight:700; color:var(--lima); font-size:1rem;}
+.revision-meta{font-size:0.8rem; color:rgba(255,255,255,0.55); margin-top:0.2rem;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -127,12 +237,13 @@ def mostrar_login():
     st.markdown("""<style>
     section[data-testid="stSidebar"]{display:none !important;}
     [data-testid="collapsedControl"]{display:none !important;}
-    body,.main{background-color:#0d1b2a !important;}
+    body, .main{background-color:#0d1b2a !important;}
     </style>""", unsafe_allow_html=True)
+
     _,col_c,_=st.columns([1,2,1])
     with col_c:
-        if LOGO_FILE.exists():
-            st.image(str(LOGO_FILE),use_container_width=True)
+        st.markdown(LOGO_SVG, unsafe_allow_html=True)
+
     _,col_c,_=st.columns([1,1.4,1])
     with col_c:
         st.markdown('<div class="login-box">',unsafe_allow_html=True)
@@ -152,21 +263,20 @@ if not st.session_state.autenticado:
     mostrar_login(); st.stop()
 
 # ============================================================================
-# BANNER
+# BANNER (logo en cabecera de cada página)
 # ============================================================================
 def _banner():
-    col_logo,col_titulo=st.columns([1,4])
+    col_logo, col_titulo = st.columns([1, 4])
     with col_logo:
-        if LOGO_FILE.exists():
-            st.image(str(LOGO_FILE),width=140)
+        st.markdown(f'<div style="max-width:180px">{LOGO_SVG}</div>', unsafe_allow_html=True)
     with col_titulo:
         st.markdown(f"""
         <div style="padding-left:1rem;padding-top:0.5rem;">
             <span style="font-family:Arial Black;font-size:2rem;font-weight:900;color:#0d1b2a;letter-spacing:2px;">{APP_NAME}</span><br>
             <span style="font-size:0.85rem;color:#39d353;font-weight:600;">Gestión de Inventario</span>
         </div>
-        """,unsafe_allow_html=True)
-    st.markdown("<hr style='border:1.5px solid #39d353;margin-top:0.5rem;margin-bottom:1.5rem;'>",unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+    st.markdown("<hr style='border:1.5px solid #39d353;margin-top:0.5rem;margin-bottom:1.5rem;'>", unsafe_allow_html=True)
 
 # ============================================================================
 # REVISIONES — helpers
@@ -184,7 +294,8 @@ def crear_revision(nombre,archivos):
     xlsx_bytes_list=[]
     for nom_arch,contenido in archivos:
         with open(carpeta/nom_arch,"wb") as f: f.write(contenido)
-        if nom_arch.lower().endswith(".xlsx"): xlsx_bytes_list.append(contenido)
+        if nom_arch.lower().endswith(".xlsx"):
+            xlsx_bytes_list.append(contenido)
     if xlsx_bytes_list:
         conn=get_db()
         try:
@@ -288,15 +399,22 @@ def _classify(code):
     except: pass
     return "Otros"
 
-def _group(code,name=""):
-    nm=str(name).lower().strip()
-    if any(k in nm for k in ("memoria ram","memoria usb","pendrive","pen drive","tarjeta sd","sd card")): return "Memorias"
-    if any(k in nm for k in ("disco duro","ssd","hdd","nvme","disco sólido","disco solido")): return "Discos duros"
-    if any(k in nm for k in ("adaptador","conversor","convertidor","hub usb","dock","docking")): return "Adaptadores"
-    if any(k in nm for k in ("cable","latigillo","latiguillo","cordón","cordon","hdmi","vga","displayport")): return "Cables"
-    if any(k in nm for k in ("cargador","fuente de alimentacion","fuente de alimentación","bateria","batería","sai","ups","regleta","alargador","enchufe")): return "Energía"
-    if any(k in nm for k in ("raton","ratón","mouse","teclado","keyboard","auricular","auriculares","headset","cascos","webcam","camara","cámara","microfono","micrófono","monitor","pantalla","display","impresora","escaner","escáner","scanner","altavoz","altavoces","speakers")): return "Periféricos"
-    if any(k in nm for k in ("switch","router","access point","punto de acceso","wifi","ethernet","patch panel","rack")): return "Switch"
+def _group(code, name=""):
+    nm = str(name).lower().strip()
+    if any(k in nm for k in ("memoria ram","memoria usb","pendrive","pen drive","tarjeta sd","sd card")):
+        return "Memorias"
+    if any(k in nm for k in ("disco duro","ssd","hdd","nvme","disco sólido","disco solido")):
+        return "Discos duros"
+    if any(k in nm for k in ("adaptador","conversor","convertidor","hub usb","dock","docking")):
+        return "Adaptadores"
+    if any(k in nm for k in ("cable","latigillo","latiguillo","cordón","cordon","hdmi","vga","displayport")):
+        return "Cables"
+    if any(k in nm for k in ("cargador","fuente de alimentacion","fuente de alimentación","bateria","batería","sai","ups","regleta","alargador","enchufe")):
+        return "Energía"
+    if any(k in nm for k in ("raton","ratón","mouse","teclado","keyboard","auricular","auriculares","headset","cascos","webcam","camara","cámara","microfono","micrófono","monitor","pantalla","display","impresora","escaner","escáner","scanner","altavoz","altavoces","speakers")):
+        return "Periféricos"
+    if any(k in nm for k in ("switch","router","access point","punto de acceso","wifi","ethernet","patch panel","rack")):
+        return "Switch"
     cat=_classify(code)
     MAP={"Almacenamiento":"Discos duros","Conectores/Adaptadores":"Adaptadores","Cables":"Cables","Energía":"Energía","Redes":"Switch","Periféricos":"Periféricos"}
     return MAP.get(cat,"Otros")
@@ -349,9 +467,9 @@ def _load_demo(conn):
     except Exception as e: print(f"Demo load error: {e}")
 
 # ============================================================================
-# IMPORTACIÓN XLSX
+# IMPORTACIÓN XLSX CENTRALIZADA
 # ============================================================================
-def _importar_xlsx_a_bd(conn,xlsx_bytes,fuente="import",limpiar=False):
+def _importar_xlsx_a_bd(conn, xlsx_bytes, fuente="import", limpiar=False):
     if limpiar:
         for tabla in ["articles","clients","providers","stock_entries","stock_exits","demo_loaded"]:
             conn.execute(f"DELETE FROM {tabla}")
@@ -365,9 +483,9 @@ def _importar_xlsx_a_bd(conn,xlsx_bytes,fuente="import",limpiar=False):
             code=_sc(row.get("codigo",""))
             if not code: continue
             ini=_ff(row.get("existencias iniciales",0)); ent=_ff(row.get("entradas",0)); sal=_ff(row.get("salidas",0))
+            nombre=row.get("nombre del articulo","")
             try:
-                conn.execute("INSERT OR REPLACE INTO articles (code,name,type,initial_stock,entries,exits,current_stock) VALUES (?,?,?,?,?,?,?)",
-                    (code,row.get("nombre del articulo"),_classify(code),ini,ent,sal,ini+ent-sal))
+                conn.execute("INSERT OR REPLACE INTO articles (code,name,type,initial_stock,entries,exits,current_stock) VALUES (?,?,?,?,?,?,?)",(code,nombre,_classify(code),ini,ent,sal,ini+ent-sal))
                 results["Artículos"]+=1
             except: pass
     sn=next((s for s in xls if "profesor" in s.lower() or "cliente" in s.lower()),None)
@@ -418,7 +536,183 @@ def _importar_xlsx_a_bd(conn,xlsx_bytes,fuente="import",limpiar=False):
     return results
 
 # ============================================================================
-# PÁGINA 1 — EXISTENCIAS
+# FUNCIONES RPT
+# ============================================================================
+def es_linea_plaza(linea):
+    if ',' in linea and re.search(r'\d{8}[A-Z]\d+[A-Z].*,',linea): return False
+    if re.match(r'^\s*\d?\s*\d{4,8}\s*[A-ZÁÉÍÓÚÑ]',linea):
+        if not re.match(r'^\s*\d{6,8}[A-Z]\d+[A-Z]+\d+',linea): return True
+    return False
+
+def es_linea_persona(linea):
+    if re.match(r'^\s*\d{8}[A-Z]\d+[A-Z]+\d+[A-ZÁÉÍÓÚÑÜ\s\.\-ªº]+,\s*[A-ZÁÉÍÓÚÑÜ]',linea): return True
+    if re.match(r'^\s*\d{8}[A-Z]\d+L\d+[A-ZÁÉÍÓÚÑÜ\s\.\-ªº]+,\s*[A-ZÁÉÍÓÚÑÜ]',linea): return True
+    return False
+
+def extraer_codigo_puesto(linea):
+    m=re.search(r'(\d{4,8})',linea); return m.group(1) if m else None
+
+def extraer_denominacion(linea):
+    mc=re.search(r'\d{4,8}',linea)
+    if not mc: return None
+    resto=linea[mc.end():]
+    m=re.match(r'\s*([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑa-záéíóúñ\s\.\/\(\)ºª\-]+?)(?:\.{2,}|\s+[A-E]\d|\s+\d+\s+\d+)',resto)
+    if m:
+        d=re.sub(r'\.+$','',m.group(1).strip()).strip()
+        return d if len(d)>2 else None
+    return None
+
+def extraer_grupo(linea):
+    for pat in [r'\s+([A-E]\d(?:-[A-E]\d)?)\s+P-[A-E]\d',r'\s+([A-E]\d(?:-[A-E]\d)?)P-[A-E]\d',r'\s+([IVX]+)\s+[A-Z]']:
+        m=re.search(pat,linea)
+        if m: return m.group(1)
+    return None
+
+def extraer_cuerpo(linea):
+    m=re.search(r'(P-[A-E]\d+)[\s\w]',linea)
+    if m: return m.group(1)
+    m=re.search(r'[IVX]+\s+([A-ZÁÉÍÓÚÑ\s\.]+?)\s+\d{2}\s+',linea)
+    if m:
+        c=' '.join(m.group(1).strip().split())
+        return c if len(c)>3 else None
+    return None
+
+def extraer_nombre_persona(linea):
+    m=re.search(r'\d{8}[A-Z]\d+[A-Z]+\d+([A-ZÁÉÍÓÚÑÜ\s,\.\-ªº]+?)(?:\s+[A-E]\d|\s+FUNC\.|LABORAL|[A-E]\d+\s)',linea)
+    if m:
+        nombre=' '.join(m.group(1).strip().split())
+        if len(nombre)>5 and ',' in nombre: return nombre
+    return None
+
+def extraer_formacion(linea):
+    if 'PROVISIONAL' in linea.upper(): return 'PROVISIONAL'
+    elif 'DEFINITIVO' in linea.upper(): return 'DEFINITIVO'
+    return None
+
+def extraer_dni(linea):
+    m=re.search(r'(\d{8}[A-Z])',linea); return m.group(1) if m else None
+
+def extraer_ads(linea):
+    if re.search(r'\b1F\s',linea): return 'F'
+    if re.search(r'\b1L\s',linea): return 'L'
+    return None
+
+def extraer_modo_acceso(linea):
+    m=re.search(r'1F\s+([A-Z]{2,3}(?:,\w+)?|[A-Z]\.\d+,?/?\d*|/\d+,[A-Z]\.\d+)\s+(?:AX\s+)?[A-E]\d',linea)
+    if m:
+        modo=m.group(1).strip()
+        if modo in ('PC','PLD','PCE'): return modo
+        elif modo.startswith('RD'): return 'RD (Art.7.1.A)'
+        elif modo.startswith('D.') or modo.startswith('/'): return 'DTO 2/2002'
+        return modo
+    m=re.search(r'1F\s+(PLD)\s+AX\s+[A-E]\d',linea)
+    if m: return 'PLD'
+    m=re.search(r'1L\s+([A-Z]{1,3}(?:,\w+)?)\s+[IVX]+\s',linea)
+    if m:
+        modo=m.group(1).strip()
+        return 'PC,S' if modo=='S,PC' else modo
+    return None
+
+LOCALIDAD_A_PROVINCIA={
+    'ALMERIA':'ALMERÍA','MOJONERA (LA)':'ALMERÍA','ALGECIRAS':'CÁDIZ','CADIZ':'CÁDIZ',
+    'CHIPIONA':'CÁDIZ','JEREZ DE LA FRONTERA':'CÁDIZ','PUERTO DE SANTA MARI':'CÁDIZ',
+    'SANLUCAR DE BARRAMED':'CÁDIZ','CABRA':'CÓRDOBA','CORDOBA':'CÓRDOBA',
+    'HINOJOSA DEL DUQUE':'CÓRDOBA','PALMA DEL RIO':'CÓRDOBA','ARMILLA':'GRANADA',
+    'GRANADA':'GRANADA','MOTRIL':'GRANADA','CARTAYA':'HUELVA','HUELVA':'HUELVA',
+    'JAEN':'JAÉN','MENGIBAR':'JAÉN','CAMPANILLAS':'MÁLAGA','CHURRIANA':'MÁLAGA',
+    'MALAGA':'MÁLAGA','ALCALA DEL RIO':'SEVILLA','AZNALCAZAR':'SEVILLA',
+    'PALACIOS Y VILLAFRAN':'SEVILLA','SEVILLA':'SEVILLA',
+}
+LOCALIDADES_INVALIDAS={'DPL. INFORMATICA INFORMATICA SEVILLA','GRDO/A EN ING SEVILLA','INFORMATICA MALAGA','INFORMATICA SEVILLA','INGENIERO EN SEVILLA','INGENIERO SEVILLA'}
+
+def extraer_localidad(linea):
+    m=re.search(r'[\d\.]+,\d{2}\s+(?:\d+\s+)?([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑa-záéíóúñ\s\.\/\-\(\)]+?)\s*$',linea)
+    if m:
+        loc=m.group(1).strip().upper()
+        if len(loc)>=3 and loc not in LOCALIDADES_INVALIDAS: return loc
+        if loc in LOCALIDADES_INVALIDAS:
+            partes=loc.split()
+            for n in range(1,min(4,len(partes))):
+                cand=' '.join(partes[-n:])
+                if cand in LOCALIDAD_A_PROVINCIA: return cand
+    return "NO ESPECIFICADA"
+
+def extraer_dotacion(linea):
+    if "NO DOTADA" in linea.upper(): return "NO DOTADA"
+    for pat in [r'\.+\s+(\d+)\s+(\d+)\s',r'\.+\s+(\d+)\s+(\d+)\s+[A-E]\d',r'\s(\d+)\s+(\d+)\s+[A-E]\d(?:-[A-E]\d)?(?:\s|P-)',r'\s(\d+)\s+(\d+)\s+[IVX]+\s']:
+        m=re.search(pat,linea)
+        if m: return "NO DOTADA" if m.group(2)=='0' else "DOTADA"
+    partes=linea.split()
+    if len(partes)>2 and (partes[-1]=='N' or partes[-2]=='N'): return "NO DOTADA"
+    return "NO DOTADA"
+
+def procesar_pdf(archivo_bytes,nombre_archivo):
+    registros=[]
+    try:
+        with pdfplumber.open(io.BytesIO(archivo_bytes)) as pdf:
+            num_pag=len(pdf.pages); todas_lineas=[]; paginas_sin_texto=[]
+            with st.spinner(f'📄 Procesando {nombre_archivo} ({num_pag} páginas)...'):
+                for np_idx,pagina in enumerate(pdf.pages,1):
+                    try:
+                        texto=pagina.extract_text()
+                        if texto: todas_lineas.extend(texto.split('\n'))
+                        else: paginas_sin_texto.append(np_idx)
+                    except: pass
+                if paginas_sin_texto: st.warning(f"⚠️ {len(paginas_sin_texto)} páginas sin texto")
+                st.info(f"✅ {nombre_archivo}: {len(todas_lineas):,} líneas extraídas")
+            i=0
+            while i<len(todas_lineas):
+                linea=todas_lineas[i]
+                if es_linea_plaza(linea):
+                    codigo=extraer_codigo_puesto(linea)
+                    if not codigo: i+=1; continue
+                    nombre_ocupante=dni_ocupante=formacion_ocupante=None
+                    for j in range(1,6):
+                        if (i+j)<len(todas_lineas):
+                            sig=todas_lineas[i+j]
+                            if es_linea_persona(sig):
+                                nombre_ocupante=extraer_nombre_persona(sig); dni_ocupante=extraer_dni(sig); formacion_ocupante=extraer_formacion(sig)
+                                if formacion_ocupante is None:
+                                    for k in range(1,4):
+                                        if (i+j+k)<len(todas_lineas):
+                                            sig2=todas_lineas[i+j+k]
+                                            if es_linea_plaza(sig2) or es_linea_persona(sig2): break
+                                            formacion_ocupante=extraer_formacion(sig2)
+                                            if formacion_ocupante: break
+                                break
+                            if es_linea_plaza(sig): break
+                    _loc=extraer_localidad(linea)
+                    registros.append({'Código':codigo,'Denominación':extraer_denominacion(linea),'Grupo':extraer_grupo(linea),'Cuerpo':extraer_cuerpo(linea),
+                        'Provincia':LOCALIDAD_A_PROVINCIA.get(_loc,"NO ESPECIFICADA"),'Localidad':_loc,'Dotación':extraer_dotacion(linea),
+                        'ADS':extraer_ads(linea),'Modo_Acceso':extraer_modo_acceso(linea),
+                        'Ocupante':nombre_ocupante if nombre_ocupante else 'LIBRE',
+                        'Estado_Plaza':'OCUPADA' if nombre_ocupante else 'VACANTE','DNI':dni_ocupante,'Carácter':formacion_ocupante})
+                i+=1
+        df=pd.DataFrame(registros)
+        if df.empty: st.error(f"❌ {nombre_archivo}: sin plazas."); return pd.DataFrame()
+        df_oc=df[df['Estado_Plaza']=='OCUPADA'].copy()
+        if not df_oc.empty and 'DNI' in df_oc.columns:
+            df_oc['_cp']=df_oc['DNI'].fillna('')+'|'+df_oc['Ocupante']
+            dups=df_oc[df_oc.duplicated(subset=['_cp'],keep=False)]
+            if not dups.empty:
+                for persona in dups['_cp'].unique():
+                    if '|' not in persona or persona.startswith('|'): continue
+                    rp=df_oc[df_oc['_cp']==persona]
+                    if 'PROVISIONAL' in rp['Carácter'].values:
+                        nombre_func=persona.split('|',1)[1]
+                        for cod in rp[rp['Carácter']=='DEFINITIVO']['Código'].tolist():
+                            df.loc[df['Código']==cod,'Estado_Plaza']='VACANTE'
+                            df.loc[df['Código']==cod,'Ocupante']=f'({nombre_func})'
+        df=df.drop_duplicates(subset=['Código'])
+        st.success(f"✅ {nombre_archivo}: {len(df):,} plazas únicas")
+        return df
+    except Exception as e:
+        st.error(f"❌ Error: {e}")
+        with st.expander("🔍 Detalles"): st.code(traceback.format_exc())
+        return pd.DataFrame()
+
+# ============================================================================
+# PÁGINAS 1-4
 # ============================================================================
 def pagina_existencias():
     _banner(); st.title("📦 Existencias")
@@ -445,7 +739,8 @@ def pagina_existencias():
             import plotly.express as px
             df_c=df_view.groupby('type')['current_stock'].sum().reset_index(); df_c.columns=['Categoría','Unidades']; df_c=df_c[df_c['Unidades']>0]
             if not df_c.empty:
-                fig=px.bar(df_c,x='Categoría',y='Unidades',color='Categoría',height=300,color_discrete_sequence=['#7fff00','#39d353','#2aad3e','#0d5c2e','#a8ff47','#57e86b','#1a8c3a','#b2ff59'])
+                fig=px.bar(df_c,x='Categoría',y='Unidades',color='Categoría',height=300,
+                    color_discrete_sequence=['#7fff00','#39d353','#2aad3e','#0d5c2e','#a8ff47','#57e86b','#1a8c3a','#b2ff59'])
                 fig.update_layout(showlegend=False,plot_bgcolor='#f4fff4',paper_bgcolor='#f4fff4',margin=dict(l=10,r=10,t=30,b=40))
                 st.plotly_chart(fig,use_container_width=True)
         except ImportError:
@@ -482,9 +777,6 @@ def pagina_existencias():
             st.download_button("📥 Exportar Excel",data=_to_excel(df_view[cols_ex]),file_name="existencias.xlsx",mime="application/vnd.ms-excel",key="exp_art")
     conn.close()
 
-# ============================================================================
-# PÁGINA 2 — PRODUCTOS
-# ============================================================================
 def pagina_productos():
     _banner(); st.title("🗂️ Productos")
     conn=get_db(); df_arts,_,_=_load_base(conn); current_user=st.session_state.usuario_actual or "usuario"
@@ -540,9 +832,6 @@ def pagina_productos():
                     except: pass
     conn.close()
 
-# ============================================================================
-# PÁGINA 3 — ENTRADAS
-# ============================================================================
 def pagina_entradas():
     _banner(); st.title("📥 Entradas")
     conn=get_db(); df_arts,df_provs,_=_load_base(conn); current_user=st.session_state.usuario_actual or "usuario"
@@ -632,9 +921,6 @@ def pagina_entradas():
             except: pass
     conn.close()
 
-# ============================================================================
-# PÁGINA 4 — SALIDAS
-# ============================================================================
 def pagina_salidas():
     _banner(); st.title("📤 Salidas")
     conn=get_db(); df_arts,_,df_profs=_load_base(conn); current_user=st.session_state.usuario_actual or "usuario"
@@ -794,8 +1080,9 @@ def pagina_configuracion():
                         if extra:
                             xlsx_nuevos=[]
                             for f in extra:
+                                dest=carpeta/f.name
                                 contenido=f.read()
-                                with open(carpeta/f.name,"wb") as out: out.write(contenido)
+                                with open(dest,"wb") as out: out.write(contenido)
                                 if f.name.lower().endswith(".xlsx"): xlsx_nuevos.append(contenido)
                             if xlsx_nuevos:
                                 conn=get_db()
@@ -864,9 +1151,7 @@ def pagina_configuracion():
 def main():
     init_db()
     with st.sidebar:
-        if LOGO_FILE.exists():
-            st.image(str(LOGO_FILE),use_container_width=True)
-        st.markdown("---")
+        st.markdown(f'<div style="max-width:160px;margin:0 auto 0.5rem auto">{LOGO_SVG}</div>',unsafe_allow_html=True)
         usuarios=cargar_usuarios()
         nombre_mostrar=usuarios.get(st.session_state.usuario_actual,{}).get('nombre',st.session_state.usuario_actual)
         st.markdown(f"👤 **{nombre_mostrar}**")
