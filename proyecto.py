@@ -82,7 +82,9 @@ def verificar_credenciales(username,password):
 defaults={'autenticado':False,'usuario_actual':None}
 for k,v in defaults.items():
     if k not in st.session_state: st.session_state[k]=v
-
+        
+try:    favicon=Image.open(BASE_DIR / "alcot_favicon.png")
+except: favicon="🖥️"
 st.set_page_config(page_title=APP_NAME, page_icon="alcot_logo.png", layout="wide", initial_sidebar_state="expanded")
 
 # ============================================================================
