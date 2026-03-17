@@ -83,7 +83,7 @@ defaults={'autenticado':False,'usuario_actual':None}
 for k,v in defaults.items():
     if k not in st.session_state: st.session_state[k]=v
 
-st.set_page_config(page_title=APP_NAME, page_icon="🖥️", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title=APP_NAME, page_icon="alcot_logo.png", layout="wide", initial_sidebar_state="expanded")
 
 # ============================================================================
 # CSS — colores del logo (#0d1b2a fondo, #7fff00 lima, #39d353 verde)
