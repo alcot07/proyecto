@@ -76,7 +76,7 @@ def verificar_credenciales(username,password):
 # ============================================================================
 # SESSION STATE
 # ============================================================================
-defaults={'autenticado':False,'usuario_actual':None}
+defaults={'autenticado':False,'usuario_actual':None,'revision_activa':None}
 for k,v in defaults.items():
     if k not in st.session_state: st.session_state[k]=v
 
@@ -86,7 +86,7 @@ except: logo_icon="🖥️"
 st.set_page_config(page_title=APP_NAME, page_icon=logo_icon, layout="wide", initial_sidebar_state="expanded")
 
 # ============================================================================
-# CSS — compatible dark y light mode
+# CSS
 # ============================================================================
 st.markdown("""
 <style>
@@ -97,171 +97,48 @@ st.markdown("""
     --verde-dim:#2aad3e;
     --texto:#e8f5e9;
 }
-
-/* ── Header ── */
-header[data-testid="stHeader"]{
-    background-color:var(--bg-dark) !important;
-    border-bottom:3px solid var(--lima) !important;
-}
+header[data-testid="stHeader"]{background-color:var(--bg-dark) !important;border-bottom:3px solid var(--lima) !important;}
 header::after{display:none !important;}
-
-/* ── Sidebar ── */
-section[data-testid="stSidebar"]{
-    background-color:var(--bg-dark) !important;
-    border-right:2px solid var(--verde) !important;
-    padding-top:1rem;
-}
+section[data-testid="stSidebar"]{background-color:var(--bg-dark) !important;border-right:2px solid var(--verde) !important;padding-top:1rem;}
 section[data-testid="stSidebar"]>div,
-section[data-testid="stSidebar"] [data-testid="stSidebarContent"]{
-    background-color:var(--bg-dark) !important;
-}
-section[data-testid="stSidebar"] *,
-section[data-testid="stSidebar"] p,
-section[data-testid="stSidebar"] span,
-section[data-testid="stSidebar"] label,
-section[data-testid="stSidebar"] div,
-section[data-testid="stSidebar"] h1,
-section[data-testid="stSidebar"] h2,
-section[data-testid="stSidebar"] h3{
-    color:var(--texto) !important; font-size:15px;
-}
-section[data-testid="stSidebar"] .stButton>button,
-section[data-testid="stSidebar"] button{
-    background-color:rgba(127,255,0,0.12) !important;
-    color:var(--lima) !important;
-    border:1px solid rgba(127,255,0,0.4) !important;
-    border-radius:6px !important;
-    font-size:13px !important;
-    width:100% !important;
-    box-shadow:none !important;
-}
+section[data-testid="stSidebar"] [data-testid="stSidebarContent"]{background-color:var(--bg-dark) !important;}
+section[data-testid="stSidebar"] *,section[data-testid="stSidebar"] p,
+section[data-testid="stSidebar"] span,section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] div,section[data-testid="stSidebar"] h1,
+section[data-testid="stSidebar"] h2,section[data-testid="stSidebar"] h3{color:var(--texto) !important;font-size:15px;}
+section[data-testid="stSidebar"] .stButton>button,section[data-testid="stSidebar"] button{
+    background-color:rgba(127,255,0,0.12) !important;color:var(--lima) !important;
+    border:1px solid rgba(127,255,0,0.4) !important;border-radius:6px !important;
+    font-size:13px !important;width:100% !important;box-shadow:none !important;}
 section[data-testid="stSidebar"] .stButton>button:hover,
-section[data-testid="stSidebar"] button:hover{
-    background-color:rgba(127,255,0,0.25) !important;
-}
+section[data-testid="stSidebar"] button:hover{background-color:rgba(127,255,0,0.25) !important;}
 section[data-testid="stSidebar"] button p{color:var(--lima) !important;font-size:13px !important;}
-section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"]{
-    background-color:transparent !important;
-    border-radius:6px !important;
-    padding:0.4rem 0.6rem !important;
-    transition:background 0.2s;
-}
-section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"]:hover{
-    background-color:rgba(127,255,0,0.12) !important;
-}
-section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"][aria-current="page"]{
-    background-color:rgba(57,211,83,0.2) !important;
-    border-left:3px solid var(--lima) !important;
-    font-weight:700 !important;
-}
+section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"]{background-color:transparent !important;border-radius:6px !important;padding:0.4rem 0.6rem !important;transition:background 0.2s;}
+section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"]:hover{background-color:rgba(127,255,0,0.12) !important;}
+section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"][aria-current="page"]{background-color:rgba(57,211,83,0.2) !important;border-left:3px solid var(--lima) !important;font-weight:700 !important;}
 section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"] span,
-section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"] p{
-    color:var(--texto) !important;
-}
-section[data-testid="stSidebar"] nav>div>p{
-    color:rgba(127,255,0,0.55) !important;
-    font-size:11px !important;
-    text-transform:uppercase;
-    letter-spacing:0.08em;
-    font-weight:600 !important;
-}
-
-/* ── Título del banner (compatible dark/light) ── */
-.banner-titulo{
-    font-family: Arial Black, sans-serif;
-    font-size: 2rem;
-    font-weight: 900;
-    letter-spacing: 2px;
-    color: #0d1b2a;
-}
-@media (prefers-color-scheme: dark){
-    .banner-titulo{ color: #ffffff !important; }
-}
-[data-theme="dark"] .banner-titulo{ color: #ffffff !important; }
-[data-theme="light"] .banner-titulo{ color: #0d1b2a !important; }
-
-/* ── Pestañas (tabs) ── */
-[data-testid="stTabs"] button[data-baseweb="tab"]{
-    color: #0d1b2a !important;
-    font-weight: 600;
-}
-[data-theme="dark"] [data-testid="stTabs"] button[data-baseweb="tab"]{
-    color: #ffffff !important;
-}
-[data-testid="stTabs"] button[aria-selected="true"]{
-    border-bottom: 3px solid var(--lima) !important;
-}
-[data-theme="dark"] [data-testid="stTabs"] button[aria-selected="true"]{
-    color: var(--lima) !important;
-}
-
-/* ── Títulos de página (st.title) ── */
-[data-testid="stMarkdownContainer"] h1,
-.main h1{
-    color: #0d1b2a !important;
-}
-[data-theme="dark"] [data-testid="stMarkdownContainer"] h1,
-[data-theme="dark"] .main h1{
-    color: #ffffff !important;
-}
-
-/* ── Texto general en modo dark ── */
-[data-theme="dark"] p,
-[data-theme="dark"] span,
-[data-theme="dark"] label,
-[data-theme="dark"] div:not([class*="sidebar"]){
-    color: #e8f5e9;
-}
-
-/* ── Main ── */
+section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"] p{color:var(--texto) !important;}
+section[data-testid="stSidebar"] nav>div>p{color:rgba(127,255,0,0.55) !important;font-size:11px !important;text-transform:uppercase;letter-spacing:0.08em;font-weight:600 !important;}
 .main{padding:2rem;}
-.main .stButton>button{
-    background-color:var(--bg-dark);
-    color:var(--lima);
-    border:1px solid var(--verde);
-    border-radius:6px;
-    padding:0.5rem 1rem;
-    font-weight:600;
-    width:100%;
-}
-.main .stButton>button:hover{
-    background-color:var(--verde-dim);
-    color:#ffffff;
-}
-
-/* ── Métricas ── */
-[data-testid="stMetric"]{
-    background:var(--bg-dark);
-    border-radius:10px;
-    padding:1rem;
-    border:1px solid var(--verde);
-}
+.main .stButton>button{background-color:var(--bg-dark);color:var(--lima);border:1px solid var(--verde);border-radius:6px;padding:0.5rem 1rem;font-weight:600;width:100%;}
+.main .stButton>button:hover{background-color:var(--verde-dim);color:#ffffff;}
+[data-testid="stMetric"]{background:var(--bg-dark);border-radius:10px;padding:1rem;border:1px solid var(--verde);}
 [data-testid="stMetricLabel"]{color:var(--texto) !important;}
 [data-testid="stMetricValue"]{color:var(--lima) !important;font-weight:900 !important;}
-
 input,textarea{border-radius:6px !important;}
 footer{visibility:hidden;}
-
-/* ── Login ── */
-.login-box{
-    max-width:420px;margin:3rem auto;padding:2.5rem 2rem;
-    background:#0d1b2a;border-radius:12px;
-    box-shadow:0 4px 32px rgba(127,255,0,0.15);
-    border-top:5px solid #7fff00;
-}
+.login-box{max-width:420px;margin:3rem auto;padding:2.5rem 2rem;background:#0d1b2a;border-radius:12px;box-shadow:0 4px 32px rgba(127,255,0,0.15);border-top:5px solid #7fff00;}
 .login-box label,.login-box p,.login-box span{color:#e8f5e9 !important;}
-
-/* ── Revision card ── */
-.revision-card{
-    background:var(--bg-dark);
-    border:1px solid rgba(57,211,83,0.4);
-    border-left:4px solid var(--lima);
-    border-radius:8px;
-    padding:0.8rem 1rem;
-    margin-bottom:0.5rem;
-}
+.revision-card{background:var(--bg-dark);border:1px solid rgba(57,211,83,0.4);border-left:4px solid var(--lima);border-radius:8px;padding:0.8rem 1rem;margin-bottom:0.5rem;}
+.revision-card-activa{background:#0d2a1a;border:1px solid #7fff00;border-left:4px solid #7fff00;border-radius:8px;padding:0.8rem 1rem;margin-bottom:0.5rem;}
 .revision-nombre{font-weight:700;color:var(--lima);font-size:1rem;}
 .revision-meta{font-size:0.8rem;color:rgba(255,255,255,0.55);margin-top:0.2rem;}
+button[data-baseweb="tab"] p,
+button[data-baseweb="tab"] span{color:#39d353 !important;font-weight:600 !important;}
+button[data-baseweb="tab"][aria-selected="true"] p,
+button[data-baseweb="tab"][aria-selected="true"] span{color:#7fff00 !important;font-weight:700 !important;}
+div[data-testid="stTabs"] [data-baseweb="tab-highlight"]{background-color:#7fff00 !important;}
+div[data-testid="stTabs"] [data-baseweb="tab-border"]{background-color:rgba(57,211,83,0.3) !important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -275,8 +152,7 @@ def mostrar_login():
     body,.main{background-color:#0d1b2a !important;}
     </style>""", unsafe_allow_html=True)
     _,col_c,_=st.columns([1,2,1])
-    with col_c:
-        st.markdown(LOGO_SVG,unsafe_allow_html=True)
+    with col_c: st.markdown(LOGO_SVG,unsafe_allow_html=True)
     _,col_c,_=st.columns([1,1.4,1])
     with col_c:
         st.markdown('<div class="login-box">',unsafe_allow_html=True)
@@ -296,7 +172,7 @@ if not st.session_state.autenticado:
     mostrar_login(); st.stop()
 
 # ============================================================================
-# BANNER
+# BANNER y TÍTULO
 # ============================================================================
 def _banner():
     col_logo,col_titulo=st.columns([1,4])
@@ -305,11 +181,18 @@ def _banner():
     with col_titulo:
         st.markdown(f"""
         <div style="padding-left:1rem;padding-top:0.5rem;">
-            <span class="banner-titulo">{APP_NAME}</span><br>
+            <span style="font-family:Arial Black,sans-serif;font-size:2rem;font-weight:900;letter-spacing:2px;color:#7fff00;">{APP_NAME}</span><br>
             <span style="font-size:0.85rem;color:#39d353;font-weight:600;">Gestión de Inventario</span>
         </div>
         """,unsafe_allow_html=True)
+    # Mostrar revisión activa en el banner
+    if st.session_state.revision_activa:
+        meta=leer_meta(st.session_state.revision_activa)
+        st.markdown(f"<div style='margin-top:0.3rem;padding-left:1rem;'><span style='background:#0d2a1a;border:1px solid #7fff00;border-radius:4px;padding:0.2rem 0.6rem;font-size:0.8rem;color:#7fff00;'>📁 Revisión activa: <b>{meta['nombre']}</b></span></div>",unsafe_allow_html=True)
     st.markdown("<hr style='border:1.5px solid #39d353;margin-top:0.5rem;margin-bottom:1.5rem;'>",unsafe_allow_html=True)
+
+def _titulo(icono,texto):
+    st.markdown(f"<h1 style='color:#39d353;'>{icono} {texto}</h1>",unsafe_allow_html=True)
 
 # ============================================================================
 # REVISIONES — helpers
@@ -318,27 +201,31 @@ def _nombre_revision_por_defecto(): return dt.now().strftime("%H:%M - %d/%m/%Y")
 def _slug(nombre): return re.sub(r'[<>:"/\\|?*\s]','_',nombre.strip())
 
 def listar_revisiones():
+    if not CARPETA_REVISIONES.exists(): return []
     return sorted([r for r in CARPETA_REVISIONES.iterdir() if r.is_dir()],key=lambda r:r.stat().st_mtime,reverse=True)
 
 def crear_revision(nombre,archivos):
     slug=_slug(nombre); carpeta=CARPETA_REVISIONES/slug; carpeta.mkdir(exist_ok=True)
     meta={"nombre":nombre,"creada":dt.now().strftime("%H:%M - %d/%m/%Y")}
     with open(carpeta/"_meta.json","w",encoding="utf-8") as f: json.dump(meta,f,ensure_ascii=False)
-    xlsx_bytes_list=[]
+    xlsx_encontrado=None
     for nom_arch,contenido in archivos:
         with open(carpeta/nom_arch,"wb") as f: f.write(contenido)
-        if nom_arch.lower().endswith(".xlsx"): xlsx_bytes_list.append(contenido)
-    if xlsx_bytes_list:
+        if nom_arch.lower().endswith(".xlsx"): xlsx_encontrado=contenido
+    # Si hay XLSX, cargarlo automáticamente y activar esta revisión
+    if xlsx_encontrado:
         conn=get_db()
         try:
-            _importar_xlsx_a_bd(conn,xlsx_bytes_list[-1],"revision",limpiar=True)
+            _importar_xlsx_a_bd(conn,xlsx_encontrado,"revision",limpiar=True)
             conn.execute("INSERT OR IGNORE INTO demo_loaded (id) VALUES (1)")
             conn.commit(); _sync_stock(conn)
         except Exception as e: print(f"Auto-import error: {e}")
         finally: conn.close()
+        st.session_state.revision_activa=carpeta
     return carpeta
 
 def leer_meta(carpeta):
+    if carpeta is None: return {"nombre":"Sin revisión","creada":""}
     mf=carpeta/"_meta.json"
     if mf.exists():
         try:
@@ -350,15 +237,34 @@ def leer_meta(carpeta):
 def archivos_de_revision(carpeta):
     return [p for p in sorted(carpeta.iterdir()) if p.suffix.lower() in (".pdf",".csv",".xlsx") and p.name!="_meta.json"]
 
-def eliminar_revision(carpeta):
-    shutil.rmtree(carpeta)
+def cargar_revision(carpeta):
+    """Carga los datos de una revisión en la BD."""
+    xlsx_files=[p for p in archivos_de_revision(carpeta) if p.suffix.lower()==".xlsx"]
+    if not xlsx_files:
+        st.warning("Esta revisión no tiene archivos XLSX para cargar.")
+        return False
     conn=get_db()
     try:
-        for tabla in ["articles","clients","providers","stock_entries","stock_exits","demo_loaded"]:
-            conn.execute(f"DELETE FROM {tabla}")
-        conn.commit()
-    except Exception as e: print(f"Error limpiando BD: {e}")
+        _importar_xlsx_a_bd(conn,xlsx_files[-1].read_bytes(),"revision",limpiar=True)
+        conn.execute("INSERT OR IGNORE INTO demo_loaded (id) VALUES (1)")
+        conn.commit(); _sync_stock(conn); _clear_cache()
+        return True
+    except Exception as e:
+        st.error(f"Error cargando revisión: {e}"); return False
     finally: conn.close()
+
+def eliminar_revision(carpeta):
+    # Si era la activa, limpiar sesión y BD
+    if st.session_state.revision_activa == carpeta:
+        st.session_state.revision_activa=None
+        conn=get_db()
+        try:
+            for tabla in ["articles","clients","providers","stock_entries","stock_exits","demo_loaded"]:
+                conn.execute(f"DELETE FROM {tabla}")
+            conn.commit()
+        except: pass
+        finally: conn.close()
+    shutil.rmtree(carpeta)
     _clear_cache()
 
 def renombrar_revision(carpeta,nuevo_nombre):
@@ -366,6 +272,8 @@ def renombrar_revision(carpeta,nuevo_nombre):
     carpeta.rename(nueva)
     with open(nueva/"_meta.json","w",encoding="utf-8") as f:
         json.dump({"nombre":nuevo_nombre,"creada":meta_vieja.get("creada","")},f,ensure_ascii=False)
+    if st.session_state.revision_activa==carpeta:
+        st.session_state.revision_activa=nueva
     return nueva
 
 # ============================================================================
@@ -385,7 +293,7 @@ def init_db():
         "CREATE TABLE IF NOT EXISTS stock_exits (id INTEGER PRIMARY KEY AUTOINCREMENT,exit_code TEXT,date TEXT,client_code TEXT,client_name TEXT,article_code TEXT,article_name TEXT,quantity INTEGER,price REAL,delivered_to TEXT,last_modified_by TEXT)",
         "CREATE TABLE IF NOT EXISTS demo_loaded (id INTEGER PRIMARY KEY)",
     ]: c.execute(sql)
-    conn.commit(); _load_demo(conn); conn.close()
+    conn.commit(); conn.close()
 
 def _nh(c):
     s=str(c).strip().lower()
@@ -482,15 +390,6 @@ def _load_base(conn):
     df_profs['display_full']=df_profs.apply(lambda r:_fmt_mixed(r['code'],r['fiscal_name']),axis=1)
     return df_arts,df_provs,df_profs
 
-def _load_demo(conn):
-    if conn.execute("SELECT COUNT(*) FROM demo_loaded").fetchone()[0]>0: return
-    demo=BASE_DIR/"Almacén_PEMA_Jaén.xlsx"
-    if not demo.exists(): return
-    try:
-        _importar_xlsx_a_bd(conn,demo.read_bytes(),"demo")
-        conn.execute("INSERT INTO demo_loaded (id) VALUES (1)"); conn.commit()
-    except Exception as e: print(f"Demo load error: {e}")
-
 # ============================================================================
 # IMPORTACIÓN XLSX
 # ============================================================================
@@ -561,10 +460,28 @@ def _importar_xlsx_a_bd(conn,xlsx_bytes,fuente="import",limpiar=False):
     return results
 
 # ============================================================================
+# PÁGINA — sin revisión activa
+# ============================================================================
+def _check_revision():
+    """Devuelve True si hay revisión activa, False y muestra aviso si no."""
+    if not st.session_state.revision_activa:
+        st.markdown("<br>",unsafe_allow_html=True)
+        st.markdown("""
+        <div style='background:#0d1b2a;border:2px solid #7fff00;border-radius:10px;padding:2rem;text-align:center;'>
+            <span style='font-size:2rem;'>📁</span><br>
+            <span style='color:#7fff00;font-size:1.2rem;font-weight:700;'>No hay ninguna revisión activa</span><br>
+            <span style='color:#39d353;font-size:0.9rem;'>Ve a <b>Configuración → Revisiones</b> y activa una revisión para ver los datos.</span>
+        </div>
+        """,unsafe_allow_html=True)
+        return False
+    return True
+
+# ============================================================================
 # PÁGINA 1 — EXISTENCIAS
 # ============================================================================
 def pagina_existencias():
-    _banner(); st.title("📦 Existencias")
+    _banner(); _titulo("📦","Existencias")
+    if not _check_revision(): return
     conn=get_db(); df_arts,_,_=_load_base(conn)
     total_art=len(df_arts); total_stock=int(df_arts['current_stock'].sum()); sin_stock=len(df_arts[df_arts['current_stock']<=0])
     m1,m2,m3=st.columns(3)
@@ -629,7 +546,8 @@ def pagina_existencias():
 # PÁGINA 2 — PRODUCTOS
 # ============================================================================
 def pagina_productos():
-    _banner(); st.title("🗂️ Productos")
+    _banner(); _titulo("🗂️","Productos")
+    if not _check_revision(): return
     conn=get_db(); df_arts,_,_=_load_base(conn); current_user=st.session_state.usuario_actual or "usuario"
     with st.expander("➕ Añadir Nuevo Producto",expanded=False):
         ca1,ca2,ca3=st.columns(3)
@@ -687,7 +605,8 @@ def pagina_productos():
 # PÁGINA 3 — ENTRADAS
 # ============================================================================
 def pagina_entradas():
-    _banner(); st.title("📥 Entradas")
+    _banner(); _titulo("📥","Entradas")
+    if not _check_revision(): return
     conn=get_db(); df_arts,df_provs,_=_load_base(conn); current_user=st.session_state.usuario_actual or "usuario"
     list_articles_full=[x for x in df_arts['display_full'] if x]
     list_providers_full=[x for x in df_provs['display_full'] if x]
@@ -779,7 +698,8 @@ def pagina_entradas():
 # PÁGINA 4 — SALIDAS
 # ============================================================================
 def pagina_salidas():
-    _banner(); st.title("📤 Salidas")
+    _banner(); _titulo("📤","Salidas")
+    if not _check_revision(): return
     conn=get_db(); df_arts,_,df_profs=_load_base(conn); current_user=st.session_state.usuario_actual or "usuario"
     list_articles_full=[x for x in df_arts['display_full'] if x]
     list_profs_full=[x for x in df_profs['display_full'] if x]
@@ -886,13 +806,14 @@ def pagina_salidas():
 # PÁGINA 5 — CONFIGURACIÓN
 # ============================================================================
 def pagina_configuracion():
-    _banner(); st.title("⚙️ Configuración")
+    _banner(); _titulo("⚙️","Configuración")
     tab_rev,tab_usr=st.tabs(["📁 Revisiones","👥 Gestión de Usuarios"])
 
     with tab_rev:
         st.markdown("### 📁 Revisiones guardadas")
-        st.markdown("Sube archivos **PDF, CSV o XLSX**. Los XLSX se importan automáticamente al guardar.")
-        archivos_subidos=st.file_uploader("📎 Arrastra aquí tus archivos",type=["pdf","csv","xlsx"],accept_multiple_files=True,key="rev_uploader")
+        st.markdown("Sube un archivo XLSX para crear una revisión. Al activarla se cargan sus datos en la aplicación.")
+
+        archivos_subidos=st.file_uploader("📎 Arrastra aquí tus archivos (PDF, CSV, XLSX)",type=["pdf","csv","xlsx"],accept_multiple_files=True,key="rev_uploader")
         col_nombre,col_btn=st.columns([3,1])
         with col_nombre:
             nombre_rev=st.text_input("Nombre de la revisión",value=_nombre_revision_por_defecto(),key="rev_nombre")
@@ -903,9 +824,10 @@ def pagina_configuracion():
                 elif not nombre_rev.strip(): st.error("El nombre no puede estar vacío.")
                 else:
                     pares=[(f.name,f.read()) for f in archivos_subidos]
-                    crear_revision(nombre_rev.strip(),pares)
-                    st.success(f"✅ Revisión **{nombre_rev}** guardada. Datos importados automáticamente.")
+                    carpeta=crear_revision(nombre_rev.strip(),pares)
+                    st.success(f"✅ Revisión **{nombre_rev}** guardada y activada automáticamente.")
                     _clear_cache(); st.rerun()
+
         st.markdown("---")
         revisiones=listar_revisiones()
         if not revisiones:
@@ -913,40 +835,57 @@ def pagina_configuracion():
         else:
             st.markdown(f"**{len(revisiones)} revisión(es) guardada(s):**")
             for carpeta in revisiones:
-                meta=leer_meta(carpeta); archivos=archivos_de_revision(carpeta)
+                meta=leer_meta(carpeta)
+                archivos=archivos_de_revision(carpeta)
+                es_activa=st.session_state.revision_activa==carpeta
+                clase_card="revision-card-activa" if es_activa else "revision-card"
+                etiqueta_activa=" &nbsp;✅ <b>ACTIVA</b>" if es_activa else ""
+
                 st.markdown(f"""
-                <div class="revision-card">
-                    <div class="revision-nombre">📁 {meta['nombre']}</div>
+                <div class="{clase_card}">
+                    <div class="revision-nombre">📁 {meta['nombre']}{etiqueta_activa}</div>
                     <div class="revision-meta">🕐 Creada: {meta['creada']} &nbsp;|&nbsp; 📄 {len(archivos)} archivo(s)</div>
                 </div>""",unsafe_allow_html=True)
-                c1,c2,c3,c4=st.columns([3,1,1,1])
+
+                c1,c2,c3,c4,c5=st.columns([2,1,1,1,1])
                 with c1:
                     if archivos: st.caption("📄 "+" , ".join(p.name for p in archivos))
                 with c2:
-                    nuevo_nom=st.text_input("",placeholder="Nuevo nombre…",key=f"ren_{carpeta.name}",label_visibility="collapsed")
+                    # Botón activar (solo si no es la activa)
+                    if not es_activa:
+                        if st.button("▶️ Activar",key=f"act_{carpeta.name}",use_container_width=True):
+                            if cargar_revision(carpeta):
+                                st.session_state.revision_activa=carpeta
+                                st.success(f"✅ Revisión **{meta['nombre']}** activada.")
+                                _clear_cache(); time.sleep(0.4); st.rerun()
+                    else:
+                        st.markdown("<span style='color:#7fff00;font-size:0.85rem;font-weight:700;'>✅ Activa</span>",unsafe_allow_html=True)
                 with c3:
-                    if st.button("✏️ Renombrar",key=f"btn_ren_{carpeta.name}"):
+                    nuevo_nom=st.text_input("",placeholder="Nuevo nombre…",key=f"ren_{carpeta.name}",label_visibility="collapsed")
+                with c4:
+                    if st.button("✏️",key=f"btn_ren_{carpeta.name}",help="Renombrar"):
                         if nuevo_nom.strip(): renombrar_revision(carpeta,nuevo_nom.strip()); st.success("✅ Renombrada."); st.rerun()
                         else: st.warning("Escribe el nuevo nombre.")
-                with c4:
-                    if st.button("🗑️ Eliminar",key=f"btn_del_{carpeta.name}"):
-                        eliminar_revision(carpeta); st.success("🗑️ Revisión y datos eliminados."); st.rerun()
+                with c5:
+                    if st.button("🗑️",key=f"btn_del_{carpeta.name}",help="Eliminar"):
+                        eliminar_revision(carpeta); st.success("🗑️ Revisión eliminada."); st.rerun()
+
                 with st.expander("➕ Añadir archivos a esta revisión",expanded=False):
                     extra=st.file_uploader("Arrastra PDF, CSV o XLSX",type=["pdf","csv","xlsx"],accept_multiple_files=True,key=f"extra_{carpeta.name}")
-                    if st.button("Añadir a revisión",key=f"btn_add_{carpeta.name}"):
+                    if st.button("Añadir",key=f"btn_add_{carpeta.name}"):
                         if extra:
                             xlsx_nuevos=[]
                             for f in extra:
                                 contenido=f.read()
                                 with open(carpeta/f.name,"wb") as out: out.write(contenido)
                                 if f.name.lower().endswith(".xlsx"): xlsx_nuevos.append(contenido)
-                            if xlsx_nuevos:
+                            if xlsx_nuevos and es_activa:
                                 conn=get_db()
                                 try:
                                     _importar_xlsx_a_bd(conn,xlsx_nuevos[-1],"revision",limpiar=True)
                                     conn.execute("INSERT OR IGNORE INTO demo_loaded (id) VALUES (1)")
                                     conn.commit(); _sync_stock(conn); _clear_cache()
-                                except Exception as e: st.error(f"Error importando: {e}")
+                                except Exception as e: st.error(f"Error: {e}")
                                 finally: conn.close()
                             st.success(f"✅ {len(extra)} archivo(s) añadido(s)."); st.rerun()
                         else: st.warning("Selecciona al menos un archivo.")
@@ -1016,6 +955,21 @@ def main():
             for k in list(defaults.keys()): st.session_state[k]=defaults[k]
             st.rerun()
         st.markdown("---")
+        # Selector rápido de revisión en sidebar
+        revisiones=listar_revisiones()
+        if revisiones:
+            st.markdown("**📁 Revisión activa**")
+            nombres={leer_meta(r)['nombre']:r for r in revisiones}
+            activa_nombre=leer_meta(st.session_state.revision_activa)['nombre'] if st.session_state.revision_activa else list(nombres.keys())[0]
+            sel=st.selectbox("",options=list(nombres.keys()),index=list(nombres.keys()).index(activa_nombre) if activa_nombre in nombres else 0,key="sel_revision",label_visibility="collapsed")
+            if nombres[sel]!=st.session_state.revision_activa:
+                if st.button("▶️ Cargar revisión",use_container_width=True,key="btn_cargar_rev"):
+                    if cargar_revision(nombres[sel]):
+                        st.session_state.revision_activa=nombres[sel]
+                        _clear_cache(); st.rerun()
+            else:
+                st.markdown("<span style='color:#7fff00;font-size:0.8rem;'>✅ Cargada</span>",unsafe_allow_html=True)
+            st.markdown("---")
         st.markdown("**📎 Subida rápida**")
         archivos_sidebar=st.file_uploader("PDF, CSV o XLSX",type=["pdf","csv","xlsx"],accept_multiple_files=True,key="sidebar_uploader",label_visibility="collapsed")
         if archivos_sidebar:
@@ -1023,7 +977,7 @@ def main():
             if st.button("💾 Guardar como revisión",key="btn_sidebar_save",use_container_width=True):
                 pares=[(f.name,f.read()) for f in archivos_sidebar]
                 crear_revision(nombre_auto,pares)
-                st.success(f"✅ Guardado: {nombre_auto}"); st.rerun()
+                st.success(f"✅ Guardado: {nombre_auto}"); _clear_cache(); st.rerun()
         st.markdown("---")
 
     p_existencias=st.Page(pagina_existencias,  title="Existencias",  icon="📦",default=True)
