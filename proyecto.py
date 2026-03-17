@@ -20,7 +20,7 @@ from datetime import datetime as dt
 BASE_DIR         = Path(__file__).resolve().parent
 DIR_DISENO       = BASE_DIR / "diseño"
 ICONO_FILE       = DIR_DISENO / "alcot_logo.png"
-HEADER_MAIN_FILE = DIR_DISENO / "ADA-vc-color (1).jpg"
+HEADER_MAIN_FILE = DIR_DISENO / "alcot_logo.jpg"
 CARPETA_REVISIONES = BASE_DIR / "revisiones"
 CARPETA_REVISIONES.mkdir(exist_ok=True)
 USUARIOS_FILE    = BASE_DIR / "usuarios.json"
