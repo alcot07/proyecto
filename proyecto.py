@@ -125,7 +125,7 @@ div[data-testid="stTabs"] [data-baseweb="tab-border"]{background-color:rgba(57,2
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# LOGIN
+# LOGIN — con soporte de Enter
 # ============================================================================
 def mostrar_login():
     st.markdown("""<style>
@@ -133,6 +133,19 @@ def mostrar_login():
     [data-testid="collapsedControl"]{display:none !important;}
     body,.main{background-color:#0d1b2a !important;}
     </style>""", unsafe_allow_html=True)
+
+    # JS para capturar Enter en los campos de texto
+    st.markdown("""
+    <script>
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            const btns = window.parent.document.querySelectorAll('button[kind="primaryFormSubmit"], button[data-testid="baseButton-primary"]');
+            if (btns.length > 0) btns[0].click();
+        }
+    });
+    </script>
+    """, unsafe_allow_html=True)
+
     _,col_c,_=st.columns([1,2,1])
     with col_c: st.markdown(LOGO_SVG,unsafe_allow_html=True)
     _,col_c,_=st.columns([1,1.4,1])
@@ -140,14 +153,17 @@ def mostrar_login():
         st.markdown('<div class="login-box">',unsafe_allow_html=True)
         st.markdown("<h3 style='text-align:center;color:#7fff00;font-family:Arial Black;'>🔐 Acceso al Sistema</h3>",unsafe_allow_html=True)
         st.markdown(f"<p style='text-align:center;color:#39d353;font-size:0.9rem;font-weight:700;'>{APP_NAME}</p>",unsafe_allow_html=True)
-        username=st.text_input("👤 Usuario",placeholder="Introduce tu usuario",key="login_user")
-        password=st.text_input("🔑 Contraseña",type="password",placeholder="Introduce tu contraseña",key="login_pass")
-        if st.button("Entrar →",type="primary",use_container_width=True):
-            if not username.strip(): st.error("Introduce tu usuario.")
-            elif not password: st.error("Introduce tu contraseña.")
-            elif verificar_credenciales(username.strip(),password):
-                st.session_state.autenticado=True; st.session_state.usuario_actual=username.strip(); st.rerun()
-            else: st.error("❌ Usuario o contraseña incorrectos.")
+
+        with st.form("login_form",clear_on_submit=False):
+            username=st.text_input("👤 Usuario",placeholder="Introduce tu usuario",key="login_user")
+            password=st.text_input("🔑 Contraseña",type="password",placeholder="Introduce tu contraseña",key="login_pass")
+            submitted=st.form_submit_button("Entrar →",use_container_width=True,type="primary")
+            if submitted:
+                if not username.strip(): st.error("Introduce tu usuario.")
+                elif not password: st.error("Introduce tu contraseña.")
+                elif verificar_credenciales(username.strip(),password):
+                    st.session_state.autenticado=True; st.session_state.usuario_actual=username.strip(); st.rerun()
+                else: st.error("❌ Usuario o contraseña incorrectos.")
         st.markdown('</div>',unsafe_allow_html=True)
 
 if not st.session_state.autenticado:
@@ -186,12 +202,15 @@ def listar_revisiones():
     return sorted([r for r in CARPETA_REVISIONES.iterdir() if r.is_dir()],key=lambda r:r.stat().st_mtime,reverse=True)
 
 def crear_revision(nombre,archivos):
+    """Guarda archivos en disco de forma permanente y activa si hay XLSX."""
     slug=_slug(nombre); carpeta=CARPETA_REVISIONES/slug; carpeta.mkdir(exist_ok=True)
     meta={"nombre":nombre,"creada":dt.now().strftime("%H:%M - %d/%m/%Y")}
     with open(carpeta/"_meta.json","w",encoding="utf-8") as f: json.dump(meta,f,ensure_ascii=False)
     xlsx_encontrado=None
     for nom_arch,contenido in archivos:
-        with open(carpeta/nom_arch,"wb") as f: f.write(contenido)
+        dest=carpeta/nom_arch
+        # Guardar siempre en disco — nunca se borra salvo que el usuario lo pida
+        with open(dest,"wb") as f: f.write(contenido)
         if nom_arch.lower().endswith(".xlsx"): xlsx_encontrado=contenido
     if xlsx_encontrado:
         conn=get_db()
@@ -233,11 +252,12 @@ def cargar_revision(carpeta):
     finally: conn.close()
 
 def eliminar_revision(carpeta):
+    """Solo elimina si el usuario lo pide explícitamente."""
     if st.session_state.revision_activa==carpeta:
         st.session_state.revision_activa=None
         conn=get_db()
         try:
-            for tabla in ["ordenadores","demo_loaded"]:
+            for tabla in ["ordenadores","entradas","salidas","demo_loaded"]:
                 conn.execute(f"DELETE FROM {tabla}")
             conn.commit()
         except: pass
@@ -254,7 +274,7 @@ def renombrar_revision(carpeta,nuevo_nombre):
     return nueva
 
 # ============================================================================
-# BASE DE DATOS — adaptada al inventario del instituto
+# BASE DE DATOS
 # ============================================================================
 def get_db():
     conn=sqlite3.connect(DB_FILE,check_same_thread=False)
@@ -265,19 +285,18 @@ def init_db():
     for sql in [
         """CREATE TABLE IF NOT EXISTS ordenadores (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            aula TEXT,
-            pc TEXT,
-            mac TEXT,
-            procesador TEXT,
-            ram TEXT,
-            disco_duro TEXT,
-            numero_serie TEXT,
-            numero_serie_pantalla TEXT,
-            pulgadas TEXT,
-            observaciones TEXT
-        )""",
-        "CREATE TABLE IF NOT EXISTS entradas (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, aula TEXT, pc TEXT, mac TEXT, procesador TEXT, ram TEXT, disco_duro TEXT, numero_serie TEXT, numero_serie_pantalla TEXT, pulgadas TEXT, observaciones TEXT, responsable TEXT)",
-        "CREATE TABLE IF NOT EXISTS salidas (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, aula TEXT, pc TEXT, mac TEXT, motivo TEXT, responsable TEXT, observaciones TEXT)",
+            aula TEXT, pc TEXT, mac TEXT, procesador TEXT, ram TEXT,
+            disco_duro TEXT, numero_serie TEXT, numero_serie_pantalla TEXT,
+            pulgadas TEXT, observaciones TEXT)""",
+        """CREATE TABLE IF NOT EXISTS entradas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fecha TEXT, aula TEXT, pc TEXT, mac TEXT, procesador TEXT,
+            ram TEXT, disco_duro TEXT, numero_serie TEXT,
+            numero_serie_pantalla TEXT, pulgadas TEXT, observaciones TEXT)""",
+        """CREATE TABLE IF NOT EXISTS salidas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fecha TEXT, aula TEXT, pc TEXT, mac TEXT,
+            motivo TEXT, observaciones TEXT)""",
         "CREATE TABLE IF NOT EXISTS demo_loaded (id INTEGER PRIMARY KEY)",
     ]: c.execute(sql)
     conn.commit(); _load_demo(conn); conn.close()
@@ -303,42 +322,42 @@ def _load_demo(conn):
     except Exception as e: print(f"Demo load error: {e}")
 
 # ============================================================================
-# IMPORTACIÓN XLSX — lee cada hoja como un aula
+# IMPORTACIÓN XLSX
 # ============================================================================
 def _importar_xlsx_a_bd(conn,xlsx_bytes,fuente="import",limpiar=False):
     if limpiar:
         for tabla in ["ordenadores","entradas","salidas","demo_loaded"]:
             conn.execute(f"DELETE FROM {tabla}")
         conn.commit()
-
     xls=pd.read_excel(io.BytesIO(xlsx_bytes),sheet_name=None)
     total=0
-
-    for sheet_name, df in xls.items():
-        # Normalizar columnas
+    for sheet_name,df in xls.items():
         df.columns=[str(c).strip() for c in df.columns]
-        # La primera columna es el nombre del PC (Pc1, Pc2...)
-        col_pc=df.columns[0]  # ej: "Aula 0-3"
+        col_pc=df.columns[0]
         aula=sheet_name.strip()
-
         for _,row in df.iterrows():
             pc=_sc(row.get(col_pc,""))
             if not pc: continue
-            mac=_sc(row.get("Mac del ordenador ","") or row.get("Mac del ordenador",""))
-            procesador=_sc(row.get("Procesador ","") or row.get("Procesador",""))
-            ram=_sc(row.get("RAM",""))
-            disco=_sc(row.get("Disco duro ","") or row.get("Disco duro",""))
-            nserie=_sc(row.get("Número de serie ","") or row.get("Número de serie",""))
-            nserie_pant=_sc(row.get("Número de serie de pantalla ","") or row.get("Número de serie de pantalla",""))
-            pulgadas=_sc(row.get("Pulgadas ","") or row.get("Pulgadas",""))
-            obs=_sc(row.get("OBSERVACIONES",""))
+            # Buscar columnas con variantes de nombre
+            def gcol(*names):
+                for n in names:
+                    for c in df.columns:
+                        if c.strip().lower()==n.strip().lower(): return _sc(row.get(c,""))
+                return ""
+            mac=gcol("Mac del ordenador ","Mac del ordenador","mac")
+            procesador=gcol("Procesador ","Procesador","procesador")
+            ram=gcol("RAM","ram")
+            disco=gcol("Disco duro ","Disco duro","disco duro")
+            nserie=gcol("Número de serie ","Número de serie","numero de serie")
+            nserie_pant=gcol("Número de serie de pantalla ","Número de serie de pantalla")
+            pulgadas=gcol("Pulgadas ","Pulgadas","pulgadas")
+            obs=gcol("OBSERVACIONES","Observaciones","observaciones")
             try:
                 conn.execute(
                     "INSERT INTO ordenadores (aula,pc,mac,procesador,ram,disco_duro,numero_serie,numero_serie_pantalla,pulgadas,observaciones) VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (aula,pc,mac,procesador,ram,disco,nserie,nserie_pant,pulgadas,obs))
                 total+=1
-            except Exception as e: print(f"Error insertando {aula}/{pc}: {e}")
-
+            except Exception as e: print(f"Error {aula}/{pc}: {e}")
     conn.commit()
     return total
 
@@ -363,6 +382,10 @@ def _check_revision():
         return False
     return True
 
+def _opts(series):
+    """Opciones únicas no vacías ordenadas para multiselect."""
+    return sorted([x for x in series.dropna().unique().tolist() if str(x).strip() not in ("","nan","None")])
+
 # ============================================================================
 # PÁGINA 1 — EXISTENCIAS
 # ============================================================================
@@ -374,7 +397,6 @@ def pagina_existencias():
     df=pd.read_sql("SELECT * FROM ordenadores",conn)
     conn.close()
 
-    # Métricas principales
     total_pcs=len(df)
     total_aulas=df['aula'].nunique()
     con_obs=len(df[df['observaciones'].notna() & (df['observaciones']!="")])
@@ -385,29 +407,33 @@ def pagina_existencias():
     m3.metric("⚠️ Con observaciones",con_obs)
     st.markdown("---")
 
-    # Filtros
+    # Todos los filtros de la tabla
     st.markdown("#### 🔎 Filtros")
-    fc1,fc2,fc3,fc4=st.columns(4)
-
-    aulas_disp=sorted(df['aula'].dropna().unique().tolist())
-    macs_disp=sorted([m for m in df['mac'].dropna().unique().tolist() if m])
-    nserie_disp=sorted([n for n in df['numero_serie'].dropna().unique().tolist() if n and n!="0"])
-    obs_disp=sorted([o for o in df['observaciones'].dropna().unique().tolist() if o])
-
-    with fc1: f_aula=st.multiselect("🏫 Aula",options=aulas_disp,key="ex_aula")
-    with fc2: f_mac=st.multiselect("🔌 MAC",options=macs_disp,key="ex_mac")
-    with fc3: f_ns=st.multiselect("🔢 Nº Serie",options=nserie_disp,key="ex_ns")
-    with fc4: f_obs=st.multiselect("⚠️ Observaciones",options=obs_disp,key="ex_obs")
+    fc1,fc2,fc3=st.columns(3)
+    with fc1:
+        f_aula=st.multiselect("🏫 Aula",options=_opts(df['aula']),key="ex_aula")
+        f_proc=st.multiselect("⚙️ Procesador",options=_opts(df['procesador']),key="ex_proc")
+        f_obs=st.multiselect("⚠️ Observaciones",options=_opts(df['observaciones']),key="ex_obs")
+    with fc2:
+        f_mac=st.multiselect("🔌 MAC",options=_opts(df['mac']),key="ex_mac")
+        f_ram=st.multiselect("💾 RAM",options=_opts(df['ram']),key="ex_ram")
+    with fc3:
+        f_ns=st.multiselect("🔢 Nº Serie",options=_opts(df['numero_serie']),key="ex_ns")
+        f_disco=st.multiselect("💿 Disco Duro",options=_opts(df['disco_duro']),key="ex_disco")
+        f_pul=st.multiselect("📐 Pulgadas",options=_opts(df['pulgadas']),key="ex_pul")
 
     df_view=df.copy()
-    if f_aula: df_view=df_view[df_view['aula'].isin(f_aula)]
-    if f_mac:  df_view=df_view[df_view['mac'].isin(f_mac)]
-    if f_ns:   df_view=df_view[df_view['numero_serie'].isin(f_ns)]
-    if f_obs:  df_view=df_view[df_view['observaciones'].isin(f_obs)]
+    if f_aula:  df_view=df_view[df_view['aula'].isin(f_aula)]
+    if f_mac:   df_view=df_view[df_view['mac'].isin(f_mac)]
+    if f_proc:  df_view=df_view[df_view['procesador'].isin(f_proc)]
+    if f_ram:   df_view=df_view[df_view['ram'].isin(f_ram)]
+    if f_disco: df_view=df_view[df_view['disco_duro'].isin(f_disco)]
+    if f_ns:    df_view=df_view[df_view['numero_serie'].isin(f_ns)]
+    if f_pul:   df_view=df_view[df_view['pulgadas'].isin(f_pul)]
+    if f_obs:   df_view=df_view[df_view['observaciones'].isin(f_obs)]
 
     st.caption(f"Mostrando **{len(df_view)}** de **{total_pcs}** ordenadores")
 
-    # Gráfica por aula
     if not df_view.empty:
         try:
             import plotly.express as px
@@ -421,59 +447,63 @@ def pagina_existencias():
             st.bar_chart(df_view.groupby('aula').size())
 
     st.markdown("---")
-
-    # Tabla
-    cols_mostrar=['aula','pc','mac','procesador','ram','disco_duro','numero_serie','numero_serie_pantalla','pulgadas','observaciones']
     rename_cols={
         'aula':'Aula','pc':'PC','mac':'MAC','procesador':'Procesador',
         'ram':'RAM','disco_duro':'Disco Duro','numero_serie':'Nº Serie',
         'numero_serie_pantalla':'Nº Serie Pantalla','pulgadas':'Pulgadas','observaciones':'Observaciones'
     }
+    cols_mostrar=[c for c in rename_cols.keys() if c in df_view.columns]
     df_show=df_view[cols_mostrar].rename(columns=rename_cols)
     st.dataframe(df_show,use_container_width=True,hide_index=True)
 
-    # Exportar
     if not df_show.empty:
         st.download_button("📥 Exportar Excel",data=_to_excel(df_show),
             file_name="existencias.xlsx",mime="application/vnd.ms-excel",key="exp_ex")
 
 # ============================================================================
-# PÁGINA 2 — PRODUCTOS (vista por aula con detalle)
+# PÁGINA 2 — EQUIPOS POR AULA
 # ============================================================================
 def pagina_productos():
-    _banner(); _titulo("🗂️ Equipos por Aula")
+    _banner(); _titulo("🗂️","Equipos por Aula")
     if not _check_revision(): return
 
     conn=get_db()
     df=pd.read_sql("SELECT * FROM ordenadores",conn)
     conn.close()
 
-    # Filtros
+    if df.empty:
+        st.info("No hay datos cargados."); return
+
     fp1,fp2=st.columns(2)
-    aulas_disp=sorted(df['aula'].dropna().unique().tolist())
-    procesadores_disp=sorted([p for p in df['procesador'].dropna().unique().tolist() if p])
-    with fp1: f_aula=st.multiselect("🏫 Filtrar por Aula:",options=aulas_disp,key="pr_aula")
-    with fp2: f_proc=st.multiselect("⚙️ Filtrar por Procesador:",options=procesadores_disp,key="pr_proc")
+    with fp1: f_aula=st.multiselect("🏫 Filtrar por Aula:",options=_opts(df['aula']),key="pr_aula")
+    with fp2: f_proc=st.multiselect("⚙️ Filtrar por Procesador:",options=_opts(df['procesador']),key="pr_proc")
 
     df_all=df.copy()
     if f_aula: df_all=df_all[df_all['aula'].isin(f_aula)]
     if f_proc: df_all=df_all[df_all['procesador'].isin(f_proc)]
 
-    # Desplegable por aula
-    for aula in sorted(df_all['aula'].unique()):
+    aulas=sorted(df_all['aula'].dropna().unique().tolist())
+    if not aulas:
+        st.info("No hay aulas con los filtros seleccionados."); return
+
+    rename_cols={
+        'pc':'PC','mac':'MAC','procesador':'Procesador','ram':'RAM',
+        'disco_duro':'Disco Duro','numero_serie':'Nº Serie',
+        'numero_serie_pantalla':'Nº Serie Pantalla','pulgadas':'Pulgadas','observaciones':'Observaciones'
+    }
+
+    for aula in aulas:
         gdf=df_all[df_all['aula']==aula].copy()
+        cols_mostrar=[c for c in rename_cols.keys() if c in gdf.columns]
+        df_show=gdf[cols_mostrar].rename(columns=rename_cols)
         with st.expander(f"🏫 {aula} — {len(gdf)} ordenadores"):
-            cols_mostrar=['pc','mac','procesador','ram','disco_duro','numero_serie','numero_serie_pantalla','pulgadas','observaciones']
-            rename_cols={
-                'pc':'PC','mac':'MAC','procesador':'Procesador','ram':'RAM',
-                'disco_duro':'Disco Duro','numero_serie':'Nº Serie',
-                'numero_serie_pantalla':'Nº Serie Pantalla','pulgadas':'Pulgadas','observaciones':'Observaciones'
-            }
-            st.dataframe(gdf[cols_mostrar].rename(columns=rename_cols),use_container_width=True,hide_index=True)
-            st.download_button(f"📥 Exportar {aula}",
-                data=_to_excel(gdf[cols_mostrar].rename(columns=rename_cols)),
+            st.dataframe(df_show,use_container_width=True,hide_index=True)
+            st.download_button(
+                f"📥 Exportar {aula}",
+                data=_to_excel(df_show),
                 file_name=f"{aula.replace(' ','_')}.xlsx",
-                mime="application/vnd.ms-excel",key=f"exp_{aula}")
+                mime="application/vnd.ms-excel",
+                key=f"exp_aula_{re.sub(r'[^a-zA-Z0-9]','_',aula)}")
 
 # ============================================================================
 # PÁGINA 3 — ENTRADAS
@@ -489,64 +519,70 @@ def pagina_entradas():
 
     aulas_disp=df_ords['aula'].tolist()
 
-    # Formulario añadir entrada
     with st.expander("➕ Registrar Nueva Entrada de Equipo",expanded=False):
         e1,e2,e3=st.columns(3)
         ne_fecha=e1.date_input("📅 Fecha",value=datetime.date.today(),key="ne_fecha")
         ne_aula=e2.selectbox("🏫 Aula",options=[""]+aulas_disp,key="ne_aula")
         ne_pc=e3.text_input("🖥️ PC (ej: Pc1)",key="ne_pc")
-
         e4,e5,e6=st.columns(3)
         ne_mac=e4.text_input("🔌 MAC",key="ne_mac")
         ne_proc=e5.text_input("⚙️ Procesador",key="ne_proc")
         ne_ram=e6.text_input("💾 RAM",key="ne_ram")
-
         e7,e8,e9=st.columns(3)
         ne_disco=e7.text_input("💿 Disco Duro",key="ne_disco")
         ne_ns=e8.text_input("🔢 Nº Serie",key="ne_ns")
         ne_nsp=e9.text_input("🔢 Nº Serie Pantalla",key="ne_nsp")
-
         e10,e11=st.columns(2)
         ne_pul=e10.text_input("📐 Pulgadas",key="ne_pul")
-        ne_resp=e11.text_input("👤 Responsable",key="ne_resp")
-        ne_obs=st.text_input("📝 Observaciones",key="ne_obs")
+        ne_obs=e11.text_input("📝 Observaciones",key="ne_obs")
 
         if st.button("💾 Guardar Entrada",key="btn_ent_add"):
             if ne_aula and ne_pc:
                 conn=get_db()
                 try:
                     conn.execute(
-                        "INSERT INTO entradas (fecha,aula,pc,mac,procesador,ram,disco_duro,numero_serie,numero_serie_pantalla,pulgadas,observaciones,responsable) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                        (ne_fecha.strftime("%d-%m-%Y"),ne_aula,ne_pc,ne_mac,ne_proc,ne_ram,ne_disco,ne_ns,ne_nsp,ne_pul,ne_obs,ne_resp))
+                        "INSERT INTO entradas (fecha,aula,pc,mac,procesador,ram,disco_duro,numero_serie,numero_serie_pantalla,pulgadas,observaciones) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                        (ne_fecha.strftime("%d-%m-%Y"),ne_aula,ne_pc,ne_mac,ne_proc,ne_ram,ne_disco,ne_ns,ne_nsp,ne_pul,ne_obs))
                     conn.commit()
                     st.success("✅ Entrada registrada."); _clear_cache(); time.sleep(0.4); st.rerun()
                 except Exception as e: st.error(f"Error: {e}")
                 finally: conn.close()
             else: st.warning("Selecciona aula e introduce el PC.")
 
+    # Filtros — todos los campos de la tabla
     st.markdown("#### 🔎 Filtros")
     ff1,ff2,ff3=st.columns(3)
-    with ff1: fe_aula=st.multiselect("🏫 Aula:",options=aulas_disp,key="fe_aula")
+    with ff1:
+        fe_aula=st.multiselect("🏫 Aula:",options=_opts(df_ent['aula']) if not df_ent.empty else [],key="fe_aula")
+        fe_proc=st.multiselect("⚙️ Procesador:",options=_opts(df_ent['procesador']) if not df_ent.empty else [],key="fe_proc")
+        fe_obs=st.multiselect("⚠️ Observaciones:",options=_opts(df_ent['observaciones']) if not df_ent.empty else [],key="fe_obs")
     with ff2:
-        fe_fecha=st.date_input("📅 Rango:",value=[],key="fe_fecha")
+        fe_mac=st.multiselect("🔌 MAC:",options=_opts(df_ent['mac']) if not df_ent.empty else [],key="fe_mac")
+        fe_ram=st.multiselect("💾 RAM:",options=_opts(df_ent['ram']) if not df_ent.empty else [],key="fe_ram")
     with ff3:
-        resps=sorted([r for r in df_ent['responsable'].dropna().unique() if r]) if not df_ent.empty else []
-        fe_resp=st.multiselect("👤 Responsable:",options=resps,key="fe_resp")
+        fe_ns=st.multiselect("🔢 Nº Serie:",options=_opts(df_ent['numero_serie']) if not df_ent.empty else [],key="fe_ns")
+        fe_disco=st.multiselect("💿 Disco Duro:",options=_opts(df_ent['disco_duro']) if not df_ent.empty else [],key="fe_disco")
+        fe_fecha=st.date_input("📅 Rango fecha:",value=[],key="fe_fecha")
 
     dv=df_ent.copy()
-    if fe_aula: dv=dv[dv['aula'].isin(fe_aula)]
-    if fe_resp: dv=dv[dv['responsable'].isin(fe_resp)]
+    if fe_aula:  dv=dv[dv['aula'].isin(fe_aula)]
+    if fe_mac:   dv=dv[dv['mac'].isin(fe_mac)]
+    if fe_proc:  dv=dv[dv['procesador'].isin(fe_proc)]
+    if fe_ram:   dv=dv[dv['ram'].isin(fe_ram)]
+    if fe_disco: dv=dv[dv['disco_duro'].isin(fe_disco)]
+    if fe_ns:    dv=dv[dv['numero_serie'].isin(fe_ns)]
+    if fe_obs:   dv=dv[dv['observaciones'].isin(fe_obs)]
     if fe_fecha and len(fe_fecha)==2:
         dv['_d']=pd.to_datetime(dv['fecha'],dayfirst=True,errors='coerce').dt.date
         dv=dv[dv['_d'].between(fe_fecha[0],fe_fecha[1])].drop('_d',axis=1)
 
     st.caption(f"Mostrando **{len(dv)}** entradas registradas")
 
-    rename_e={'fecha':'Fecha','aula':'Aula','pc':'PC','mac':'MAC','procesador':'Procesador',
-              'ram':'RAM','disco_duro':'Disco Duro','numero_serie':'Nº Serie',
-              'numero_serie_pantalla':'Nº Serie Pantalla','pulgadas':'Pulgadas',
-              'observaciones':'Observaciones','responsable':'Responsable'}
-
+    rename_e={
+        'fecha':'Fecha','aula':'Aula','pc':'PC','mac':'MAC','procesador':'Procesador',
+        'ram':'RAM','disco_duro':'Disco Duro','numero_serie':'Nº Serie',
+        'numero_serie_pantalla':'Nº Serie Pantalla','pulgadas':'Pulgadas','observaciones':'Observaciones'
+    }
     cols_show=[c for c in rename_e.keys() if c in dv.columns]
     df_show=dv[cols_show].rename(columns=rename_e)
     st.dataframe(df_show,use_container_width=True,hide_index=True)
@@ -557,7 +593,8 @@ def pagina_entradas():
             st.download_button("📥 Exportar Excel",data=_to_excel(df_show),
                 file_name="entradas.xlsx",mime="application/vnd.ms-excel",key="exp_ent")
     with c2:
-        ids_sel=st.multiselect("Seleccionar IDs a eliminar:",options=dv['id'].tolist() if not dv.empty else [],key="del_ent_ids")
+        ids_sel=st.multiselect("Seleccionar IDs a eliminar:",
+            options=dv['id'].tolist() if not dv.empty else [],key="del_ent_ids")
         if st.button("🗑️ Eliminar seleccionados",key="del_ent"):
             if ids_sel:
                 conn=get_db()
@@ -586,49 +623,53 @@ def pagina_salidas():
         ns_fecha=s1.date_input("📅 Fecha",value=datetime.date.today(),key="ns_fecha")
         ns_aula=s2.selectbox("🏫 Aula",options=[""]+aulas_disp,key="ns_aula")
         ns_pc=s3.text_input("🖥️ PC (ej: Pc1)",key="ns_pc")
-
         s4,s5=st.columns(2)
         ns_mac=s4.text_input("🔌 MAC del equipo",key="ns_mac")
         ns_motivo=s5.selectbox("📋 Motivo",options=[""]+motivos,key="ns_motivo")
-
-        s6,s7=st.columns(2)
-        ns_resp=s6.text_input("👤 Responsable",key="ns_resp")
-        ns_obs=s7.text_input("📝 Observaciones",key="ns_obs")
+        ns_obs=st.text_input("📝 Observaciones",key="ns_obs")
 
         if st.button("💾 Guardar Salida",key="btn_sal_add"):
             if ns_aula and ns_pc:
                 conn=get_db()
                 try:
                     conn.execute(
-                        "INSERT INTO salidas (fecha,aula,pc,mac,motivo,responsable,observaciones) VALUES (?,?,?,?,?,?,?)",
-                        (ns_fecha.strftime("%d-%m-%Y"),ns_aula,ns_pc,ns_mac,ns_motivo,ns_resp,ns_obs))
+                        "INSERT INTO salidas (fecha,aula,pc,mac,motivo,observaciones) VALUES (?,?,?,?,?,?)",
+                        (ns_fecha.strftime("%d-%m-%Y"),ns_aula,ns_pc,ns_mac,ns_motivo,ns_obs))
                     conn.commit()
                     st.success("✅ Salida registrada."); _clear_cache(); time.sleep(0.4); st.rerun()
                 except Exception as e: st.error(f"Error: {e}")
                 finally: conn.close()
             else: st.warning("Selecciona aula e introduce el PC.")
 
+    # Filtros — todos los campos de la tabla
     st.markdown("#### 🔎 Filtros")
-    sf1,sf2,sf3,sf4=st.columns(4)
-    with sf1: fs_aula=st.multiselect("🏫 Aula:",options=aulas_disp,key="fs_aula")
-    with sf2: fs_motivo=st.multiselect("📋 Motivo:",options=motivos,key="fs_motivo")
+    sf1,sf2,sf3=st.columns(3)
+    with sf1:
+        fs_aula=st.multiselect("🏫 Aula:",options=_opts(df_sal['aula']) if not df_sal.empty else [],key="fs_aula")
+        fs_mac=st.multiselect("🔌 MAC:",options=_opts(df_sal['mac']) if not df_sal.empty else [],key="fs_mac")
+    with sf2:
+        fs_motivo=st.multiselect("📋 Motivo:",options=motivos,key="fs_motivo")
+        fs_obs=st.multiselect("⚠️ Observaciones:",options=_opts(df_sal['observaciones']) if not df_sal.empty else [],key="fs_obs")
     with sf3:
-        resps=sorted([r for r in df_sal['responsable'].dropna().unique() if r]) if not df_sal.empty else []
-        fs_resp=st.multiselect("👤 Responsable:",options=resps,key="fs_resp")
-    with sf4: fs_fecha=st.date_input("📅 Rango:",value=[],key="fs_fecha")
+        fs_pc=st.multiselect("🖥️ PC:",options=_opts(df_sal['pc']) if not df_sal.empty else [],key="fs_pc")
+        fs_fecha=st.date_input("📅 Rango fecha:",value=[],key="fs_fecha")
 
     dv=df_sal.copy()
-    if fs_aula: dv=dv[dv['aula'].isin(fs_aula)]
+    if fs_aula:   dv=dv[dv['aula'].isin(fs_aula)]
+    if fs_mac:    dv=dv[dv['mac'].isin(fs_mac)]
     if fs_motivo: dv=dv[dv['motivo'].isin(fs_motivo)]
-    if fs_resp: dv=dv[dv['responsable'].isin(fs_resp)]
+    if fs_obs:    dv=dv[dv['observaciones'].isin(fs_obs)]
+    if fs_pc:     dv=dv[dv['pc'].isin(fs_pc)]
     if fs_fecha and len(fs_fecha)==2:
         dv['_d']=pd.to_datetime(dv['fecha'],dayfirst=True,errors='coerce').dt.date
         dv=dv[dv['_d'].between(fs_fecha[0],fs_fecha[1])].drop('_d',axis=1)
 
     st.caption(f"Mostrando **{len(dv)}** salidas registradas")
 
-    rename_s={'fecha':'Fecha','aula':'Aula','pc':'PC','mac':'MAC',
-              'motivo':'Motivo','responsable':'Responsable','observaciones':'Observaciones'}
+    rename_s={
+        'fecha':'Fecha','aula':'Aula','pc':'PC','mac':'MAC',
+        'motivo':'Motivo','observaciones':'Observaciones'
+    }
     cols_show=[c for c in rename_s.keys() if c in dv.columns]
     df_show=dv[cols_show].rename(columns=rename_s)
     st.dataframe(df_show,use_container_width=True,hide_index=True)
@@ -639,7 +680,8 @@ def pagina_salidas():
             st.download_button("📥 Exportar Excel",data=_to_excel(df_show),
                 file_name="salidas.xlsx",mime="application/vnd.ms-excel",key="exp_sal")
     with c2:
-        ids_sel=st.multiselect("Seleccionar IDs a eliminar:",options=dv['id'].tolist() if not dv.empty else [],key="del_sal_ids")
+        ids_sel=st.multiselect("Seleccionar IDs a eliminar:",
+            options=dv['id'].tolist() if not dv.empty else [],key="del_sal_ids")
         if st.button("🗑️ Eliminar seleccionados",key="del_sal"):
             if ids_sel:
                 conn=get_db()
@@ -657,7 +699,7 @@ def pagina_configuracion():
 
     with tab_rev:
         st.markdown("### 📁 Revisiones guardadas")
-        st.markdown("Sube el archivo **XLSX** del inventario. Se importará automáticamente al guardar la revisión.")
+        st.markdown("Sube el archivo **XLSX** del inventario. Los archivos se guardan permanentemente en disco.")
         archivos_subidos=st.file_uploader("📎 Arrastra aquí tu archivo",type=["pdf","csv","xlsx"],accept_multiple_files=True,key="rev_uploader")
         col_nombre,col_btn=st.columns([3,1])
         with col_nombre:
@@ -708,7 +750,7 @@ def pagina_configuracion():
                         if nuevo_nom.strip(): renombrar_revision(carpeta,nuevo_nom.strip()); st.success("✅ Renombrada."); st.rerun()
                         else: st.warning("Escribe el nuevo nombre.")
                 with c5:
-                    if st.button("🗑️",key=f"btn_del_{carpeta.name}",help="Eliminar"):
+                    if st.button("🗑️",key=f"btn_del_{carpeta.name}",help="Eliminar permanentemente"):
                         eliminar_revision(carpeta); st.success("🗑️ Eliminada."); st.rerun()
                 st.markdown("<div style='margin-bottom:0.5rem'></div>",unsafe_allow_html=True)
 
@@ -792,7 +834,8 @@ def main():
                 st.markdown("<span style='color:#7fff00;font-size:0.8rem;'>✅ Cargada</span>",unsafe_allow_html=True)
             st.markdown("---")
         st.markdown("**📎 Subida rápida**")
-        archivos_sidebar=st.file_uploader("XLSX / PDF / CSV",type=["pdf","csv","xlsx"],accept_multiple_files=True,key="sidebar_uploader",label_visibility="collapsed")
+        archivos_sidebar=st.file_uploader("XLSX / PDF / CSV",type=["pdf","csv","xlsx"],
+            accept_multiple_files=True,key="sidebar_uploader",label_visibility="collapsed")
         if archivos_sidebar:
             nombre_auto=_nombre_revision_por_defecto()
             if st.button("💾 Guardar como revisión",key="btn_sidebar_save",use_container_width=True):
@@ -801,11 +844,11 @@ def main():
                 st.success(f"✅ Guardado: {nombre_auto}"); _clear_cache(); st.rerun()
         st.markdown("---")
 
-    p_existencias=st.Page(pagina_existencias,title="Existencias",icon="📦",default=True)
+    p_existencias=st.Page(pagina_existencias,title="Existencias",     icon="📦",default=True)
     p_productos  =st.Page(pagina_productos,  title="Equipos por Aula",icon="🗂️")
-    p_entradas   =st.Page(pagina_entradas,   title="Entradas",icon="📥")
-    p_salidas    =st.Page(pagina_salidas,    title="Salidas",icon="📤")
-    p_config     =st.Page(pagina_configuracion,title="Configuración",icon="⚙️")
+    p_entradas   =st.Page(pagina_entradas,   title="Entradas",        icon="📥")
+    p_salidas    =st.Page(pagina_salidas,    title="Salidas",         icon="📤")
+    p_config     =st.Page(pagina_configuracion,title="Configuración", icon="⚙️")
 
     pg=st.navigation({
         f"{APP_NAME}":[p_existencias,p_productos,p_entradas,p_salidas],
