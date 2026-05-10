@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
-import pdfplumber
 import re
 import io
+import pdfplumber
 import shutil
 import hashlib
 import json
@@ -96,7 +96,7 @@ section[data-testid="stSidebar"] .stButton>button,section[data-testid="stSidebar
 section[data-testid="stSidebar"] .stButton>button:hover,
 section[data-testid="stSidebar"] button:hover{background-color:rgba(127,255,0,0.25) !important;}
 section[data-testid="stSidebar"] button p{color:var(--lima) !important;font-size:13px !important;}
-section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"]{background-color:transparent !important;border-radius:6px !important;padding:0.4rem 0.6rem !important;transition:background 0.2s;}
+section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"]{background-color:transparent !important;border-radius:6px !important;padding:0.4rem 0.6rem !important;}
 section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"]:hover{background-color:rgba(127,255,0,0.12) !important;}
 section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"][aria-current="page"]{background-color:rgba(57,211,83,0.2) !important;border-left:3px solid var(--lima) !important;font-weight:700 !important;}
 section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"] span,
@@ -125,7 +125,7 @@ div[data-testid="stTabs"] [data-baseweb="tab-border"]{background-color:rgba(57,2
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# LOGIN — con soporte de Enter
+# LOGIN
 # ============================================================================
 def mostrar_login():
     st.markdown("""<style>
@@ -133,19 +133,6 @@ def mostrar_login():
     [data-testid="collapsedControl"]{display:none !important;}
     body,.main{background-color:#0d1b2a !important;}
     </style>""", unsafe_allow_html=True)
-
-    # JS para capturar Enter en los campos de texto
-    st.markdown("""
-    <script>
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') {
-            const btns = window.parent.document.querySelectorAll('button[kind="primaryFormSubmit"], button[data-testid="baseButton-primary"]');
-            if (btns.length > 0) btns[0].click();
-        }
-    });
-    </script>
-    """, unsafe_allow_html=True)
-
     _,col_c,_=st.columns([1,2,1])
     with col_c: st.markdown(LOGO_SVG,unsafe_allow_html=True)
     _,col_c,_=st.columns([1,1.4,1])
@@ -153,7 +140,6 @@ def mostrar_login():
         st.markdown('<div class="login-box">',unsafe_allow_html=True)
         st.markdown("<h3 style='text-align:center;color:#7fff00;font-family:Arial Black;'>🔐 Acceso al Sistema</h3>",unsafe_allow_html=True)
         st.markdown(f"<p style='text-align:center;color:#39d353;font-size:0.9rem;font-weight:700;'>{APP_NAME}</p>",unsafe_allow_html=True)
-
         with st.form("login_form",clear_on_submit=False):
             username=st.text_input("👤 Usuario",placeholder="Introduce tu usuario",key="login_user")
             password=st.text_input("🔑 Contraseña",type="password",placeholder="Introduce tu contraseña",key="login_pass")
@@ -192,7 +178,7 @@ def _titulo(icono,texto):
     st.markdown(f"<h1 style='color:#39d353;'>{icono} {texto}</h1>",unsafe_allow_html=True)
 
 # ============================================================================
-# REVISIONES — helpers
+# REVISIONES
 # ============================================================================
 def _nombre_revision_por_defecto(): return dt.now().strftime("%H:%M - %d/%m/%Y")
 def _slug(nombre): return re.sub(r'[<>:"/\\|?*\s]','_',nombre.strip())
@@ -202,15 +188,12 @@ def listar_revisiones():
     return sorted([r for r in CARPETA_REVISIONES.iterdir() if r.is_dir()],key=lambda r:r.stat().st_mtime,reverse=True)
 
 def crear_revision(nombre,archivos):
-    """Guarda archivos en disco de forma permanente y activa si hay XLSX."""
     slug=_slug(nombre); carpeta=CARPETA_REVISIONES/slug; carpeta.mkdir(exist_ok=True)
     meta={"nombre":nombre,"creada":dt.now().strftime("%H:%M - %d/%m/%Y")}
     with open(carpeta/"_meta.json","w",encoding="utf-8") as f: json.dump(meta,f,ensure_ascii=False)
     xlsx_encontrado=None
     for nom_arch,contenido in archivos:
-        dest=carpeta/nom_arch
-        # Guardar siempre en disco — nunca se borra salvo que el usuario lo pida
-        with open(dest,"wb") as f: f.write(contenido)
+        with open(carpeta/nom_arch,"wb") as f: f.write(contenido)
         if nom_arch.lower().endswith(".xlsx"): xlsx_encontrado=contenido
     if xlsx_encontrado:
         conn=get_db()
@@ -238,27 +221,21 @@ def archivos_de_revision(carpeta):
 
 def cargar_revision(carpeta):
     xlsx_files=[p for p in archivos_de_revision(carpeta) if p.suffix.lower()==".xlsx"]
-    if not xlsx_files:
-        st.warning("Esta revisión no tiene archivos XLSX para cargar.")
-        return False
+    if not xlsx_files: st.warning("Esta revisión no tiene archivos XLSX."); return False
     conn=get_db()
     try:
         _importar_xlsx_a_bd(conn,xlsx_files[-1].read_bytes(),"revision",limpiar=True)
         conn.execute("INSERT OR IGNORE INTO demo_loaded (id) VALUES (1)")
-        conn.commit(); _clear_cache()
-        return True
-    except Exception as e:
-        st.error(f"Error cargando revisión: {e}"); return False
+        conn.commit(); _clear_cache(); return True
+    except Exception as e: st.error(f"Error: {e}"); return False
     finally: conn.close()
 
 def eliminar_revision(carpeta):
-    """Solo elimina si el usuario lo pide explícitamente."""
     if st.session_state.revision_activa==carpeta:
         st.session_state.revision_activa=None
         conn=get_db()
         try:
-            for tabla in ["ordenadores","entradas","salidas","demo_loaded"]:
-                conn.execute(f"DELETE FROM {tabla}")
+            for t in ["ordenadores","entradas","salidas","demo_loaded"]: conn.execute(f"DELETE FROM {t}")
             conn.commit()
         except: pass
         finally: conn.close()
@@ -269,8 +246,7 @@ def renombrar_revision(carpeta,nuevo_nombre):
     carpeta.rename(nueva)
     with open(nueva/"_meta.json","w",encoding="utf-8") as f:
         json.dump({"nombre":nuevo_nombre,"creada":meta_vieja.get("creada","")},f,ensure_ascii=False)
-    if st.session_state.revision_activa==carpeta:
-        st.session_state.revision_activa=nueva
+    if st.session_state.revision_activa==carpeta: st.session_state.revision_activa=nueva
     return nueva
 
 # ============================================================================
@@ -285,18 +261,18 @@ def init_db():
     for sql in [
         """CREATE TABLE IF NOT EXISTS ordenadores (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            aula TEXT, pc TEXT, mac TEXT, procesador TEXT, ram TEXT,
-            disco_duro TEXT, numero_serie TEXT, numero_serie_pantalla TEXT,
-            pulgadas TEXT, observaciones TEXT)""",
+            aula TEXT,pc TEXT,mac TEXT,procesador TEXT,ram TEXT,
+            disco_duro TEXT,numero_serie TEXT,numero_serie_pantalla TEXT,
+            pulgadas TEXT,observaciones TEXT)""",
         """CREATE TABLE IF NOT EXISTS entradas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            fecha TEXT, aula TEXT, pc TEXT, mac TEXT, procesador TEXT,
-            ram TEXT, disco_duro TEXT, numero_serie TEXT,
-            numero_serie_pantalla TEXT, pulgadas TEXT, observaciones TEXT)""",
+            fecha TEXT,aula TEXT,pc TEXT,mac TEXT,procesador TEXT,
+            ram TEXT,disco_duro TEXT,numero_serie TEXT,
+            numero_serie_pantalla TEXT,pulgadas TEXT,observaciones TEXT)""",
         """CREATE TABLE IF NOT EXISTS salidas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            fecha TEXT, aula TEXT, pc TEXT, mac TEXT,
-            motivo TEXT, observaciones TEXT)""",
+            fecha TEXT,aula TEXT,pc TEXT,mac TEXT,
+            motivo TEXT,observaciones TEXT)""",
         "CREATE TABLE IF NOT EXISTS demo_loaded (id INTEGER PRIMARY KEY)",
     ]: c.execute(sql)
     conn.commit(); _load_demo(conn); conn.close()
@@ -307,8 +283,7 @@ def _sc(val):
         if pd.isna(val): return ""
     except: pass
     s=str(val).strip()
-    if s in ("nan","None",""): return ""
-    return s
+    return "" if s in ("nan","None","") else s
 
 def _clear_cache(): st.cache_data.clear()
 
@@ -321,70 +296,60 @@ def _load_demo(conn):
         conn.execute("INSERT INTO demo_loaded (id) VALUES (1)"); conn.commit()
     except Exception as e: print(f"Demo load error: {e}")
 
-# ============================================================================
-# IMPORTACIÓN XLSX
-# ============================================================================
 def _importar_xlsx_a_bd(conn,xlsx_bytes,fuente="import",limpiar=False):
     if limpiar:
-        for tabla in ["ordenadores","entradas","salidas","demo_loaded"]:
-            conn.execute(f"DELETE FROM {tabla}")
+        for t in ["ordenadores","entradas","salidas","demo_loaded"]: conn.execute(f"DELETE FROM {t}")
         conn.commit()
     xls=pd.read_excel(io.BytesIO(xlsx_bytes),sheet_name=None)
     total=0
     for sheet_name,df in xls.items():
         df.columns=[str(c).strip() for c in df.columns]
-        col_pc=df.columns[0]
-        aula=sheet_name.strip()
+        col_pc=df.columns[0]; aula=sheet_name.strip()
+        def gcol(row,*names):
+            for n in names:
+                for c in df.columns:
+                    if c.strip().lower()==n.strip().lower(): return _sc(row.get(c,""))
+            return ""
         for _,row in df.iterrows():
             pc=_sc(row.get(col_pc,""))
             if not pc: continue
-            # Buscar columnas con variantes de nombre
-            def gcol(*names):
-                for n in names:
-                    for c in df.columns:
-                        if c.strip().lower()==n.strip().lower(): return _sc(row.get(c,""))
-                return ""
-            mac=gcol("Mac del ordenador ","Mac del ordenador","mac")
-            procesador=gcol("Procesador ","Procesador","procesador")
-            ram=gcol("RAM","ram")
-            disco=gcol("Disco duro ","Disco duro","disco duro")
-            nserie=gcol("Número de serie ","Número de serie","numero de serie")
-            nserie_pant=gcol("Número de serie de pantalla ","Número de serie de pantalla")
-            pulgadas=gcol("Pulgadas ","Pulgadas","pulgadas")
-            obs=gcol("OBSERVACIONES","Observaciones","observaciones")
             try:
                 conn.execute(
                     "INSERT INTO ordenadores (aula,pc,mac,procesador,ram,disco_duro,numero_serie,numero_serie_pantalla,pulgadas,observaciones) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                    (aula,pc,mac,procesador,ram,disco,nserie,nserie_pant,pulgadas,obs))
+                    (aula,pc,
+                     gcol(row,"Mac del ordenador ","Mac del ordenador","mac"),
+                     gcol(row,"Procesador ","Procesador","procesador"),
+                     gcol(row,"RAM","ram"),
+                     gcol(row,"Disco duro ","Disco duro","disco duro"),
+                     gcol(row,"Número de serie ","Número de serie","numero de serie"),
+                     gcol(row,"Número de serie de pantalla ","Número de serie de pantalla"),
+                     gcol(row,"Pulgadas ","Pulgadas","pulgadas"),
+                     gcol(row,"OBSERVACIONES","Observaciones","observaciones")))
                 total+=1
             except Exception as e: print(f"Error {aula}/{pc}: {e}")
-    conn.commit()
-    return total
+    conn.commit(); return total
 
 def _to_excel(df):
     buf=io.BytesIO()
     with pd.ExcelWriter(buf,engine='openpyxl') as w: df.to_excel(w,index=False,sheet_name='Datos')
     return buf.getvalue()
 
+def _opts(series):
+    return sorted([x for x in series.dropna().unique().tolist() if str(x).strip() not in ("","nan","None")])
+
 # ============================================================================
 # CHECK REVISIÓN
 # ============================================================================
 def _check_revision():
     if not st.session_state.revision_activa:
-        st.markdown("<br>",unsafe_allow_html=True)
         st.markdown("""
-        <div style='background:#0d1b2a;border:2px solid #7fff00;border-radius:10px;padding:2rem;text-align:center;'>
+        <div style='background:#0d1b2a;border:2px solid #7fff00;border-radius:10px;padding:2rem;text-align:center;margin-top:2rem;'>
             <span style='font-size:2rem;'>📁</span><br>
             <span style='color:#7fff00;font-size:1.2rem;font-weight:700;'>No hay ninguna revisión activa</span><br>
-            <span style='color:#39d353;font-size:0.9rem;'>Ve a <b>Configuración → Revisiones</b> y activa una revisión para ver los datos.</span>
-        </div>
-        """,unsafe_allow_html=True)
+            <span style='color:#39d353;font-size:0.9rem;'>Ve a <b>Configuración → Revisiones</b> y activa una revisión.</span>
+        </div>""",unsafe_allow_html=True)
         return False
     return True
-
-def _opts(series):
-    """Opciones únicas no vacías ordenadas para multiselect."""
-    return sorted([x for x in series.dropna().unique().tolist() if str(x).strip() not in ("","nan","None")])
 
 # ============================================================================
 # PÁGINA 1 — EXISTENCIAS
@@ -392,22 +357,14 @@ def _opts(series):
 def pagina_existencias():
     _banner(); _titulo("📦","Existencias")
     if not _check_revision(): return
-
-    conn=get_db()
-    df=pd.read_sql("SELECT * FROM ordenadores",conn)
-    conn.close()
-
-    total_pcs=len(df)
-    total_aulas=df['aula'].nunique()
-    con_obs=len(df[df['observaciones'].notna() & (df['observaciones']!="")])
+    conn=get_db(); df=pd.read_sql("SELECT * FROM ordenadores",conn); conn.close()
 
     m1,m2,m3=st.columns(3)
-    m1.metric("🖥️ Total ordenadores",total_pcs)
-    m2.metric("🏫 Total aulas",total_aulas)
-    m3.metric("⚠️ Con observaciones",con_obs)
+    m1.metric("🖥️ Total ordenadores",len(df))
+    m2.metric("🏫 Total aulas",df['aula'].nunique())
+    m3.metric("⚠️ Con observaciones",len(df[df['observaciones'].notna()&(df['observaciones']!="")]))
     st.markdown("---")
 
-    # Todos los filtros de la tabla
     st.markdown("#### 🔎 Filtros")
     fc1,fc2,fc3=st.columns(3)
     with fc1:
@@ -422,81 +379,90 @@ def pagina_existencias():
         f_disco=st.multiselect("💿 Disco Duro",options=_opts(df['disco_duro']),key="ex_disco")
         f_pul=st.multiselect("📐 Pulgadas",options=_opts(df['pulgadas']),key="ex_pul")
 
-    df_view=df.copy()
-    if f_aula:  df_view=df_view[df_view['aula'].isin(f_aula)]
-    if f_mac:   df_view=df_view[df_view['mac'].isin(f_mac)]
-    if f_proc:  df_view=df_view[df_view['procesador'].isin(f_proc)]
-    if f_ram:   df_view=df_view[df_view['ram'].isin(f_ram)]
-    if f_disco: df_view=df_view[df_view['disco_duro'].isin(f_disco)]
-    if f_ns:    df_view=df_view[df_view['numero_serie'].isin(f_ns)]
-    if f_pul:   df_view=df_view[df_view['pulgadas'].isin(f_pul)]
-    if f_obs:   df_view=df_view[df_view['observaciones'].isin(f_obs)]
+    dv=df.copy()
+    if f_aula:  dv=dv[dv['aula'].isin(f_aula)]
+    if f_mac:   dv=dv[dv['mac'].isin(f_mac)]
+    if f_proc:  dv=dv[dv['procesador'].isin(f_proc)]
+    if f_ram:   dv=dv[dv['ram'].isin(f_ram)]
+    if f_disco: dv=dv[dv['disco_duro'].isin(f_disco)]
+    if f_ns:    dv=dv[dv['numero_serie'].isin(f_ns)]
+    if f_pul:   dv=dv[dv['pulgadas'].isin(f_pul)]
+    if f_obs:   dv=dv[dv['observaciones'].isin(f_obs)]
 
-    st.caption(f"Mostrando **{len(df_view)}** de **{total_pcs}** ordenadores")
+    st.caption(f"Mostrando **{len(dv)}** de **{len(df)}** ordenadores")
 
-    if not df_view.empty:
+    if not dv.empty:
         try:
             import plotly.express as px
-            df_c=df_view.groupby('aula').size().reset_index(name='Ordenadores')
-            fig=px.bar(df_c,x='aula',y='Ordenadores',color='aula',height=300,
+            df_c=dv.groupby('aula').size().reset_index(name='Ordenadores')
+            fig=px.bar(df_c,x='aula',y='Ordenadores',color='aula',height=280,
                 color_discrete_sequence=['#7fff00','#39d353','#2aad3e','#0d5c2e','#a8ff47','#57e86b','#1a8c3a','#b2ff59'])
-            fig.update_layout(showlegend=False,plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',
-                margin=dict(l=10,r=10,t=30,b=40),xaxis_title="Aula",yaxis_title="Nº Ordenadores")
+            fig.update_layout(showlegend=False,plot_bgcolor='rgba(0,0,0,0)',paper_bgcolor='rgba(0,0,0,0)',margin=dict(l=10,r=10,t=20,b=30))
             st.plotly_chart(fig,use_container_width=True)
         except ImportError:
-            st.bar_chart(df_view.groupby('aula').size())
+            st.bar_chart(dv.groupby('aula').size())
 
     st.markdown("---")
-    rename_cols={
-        'aula':'Aula','pc':'PC','mac':'MAC','procesador':'Procesador',
-        'ram':'RAM','disco_duro':'Disco Duro','numero_serie':'Nº Serie',
-        'numero_serie_pantalla':'Nº Serie Pantalla','pulgadas':'Pulgadas','observaciones':'Observaciones'
-    }
-    cols_mostrar=[c for c in rename_cols.keys() if c in df_view.columns]
-    df_show=df_view[cols_mostrar].rename(columns=rename_cols)
+    rename={'aula':'Aula','pc':'PC','mac':'MAC','procesador':'Procesador','ram':'RAM',
+            'disco_duro':'Disco Duro','numero_serie':'Nº Serie','numero_serie_pantalla':'Nº Serie Pantalla',
+            'pulgadas':'Pulgadas','observaciones':'Observaciones'}
+    cols=[c for c in rename if c in dv.columns]
+    df_show=dv[cols].rename(columns=rename)
     st.dataframe(df_show,use_container_width=True,hide_index=True)
-
     if not df_show.empty:
-        st.download_button("📥 Exportar Excel",data=_to_excel(df_show),
-            file_name="existencias.xlsx",mime="application/vnd.ms-excel",key="exp_ex")
+        st.download_button("📥 Exportar Excel",data=_to_excel(df_show),file_name="existencias.xlsx",mime="application/vnd.ms-excel",key="exp_ex")
 
 # ============================================================================
-# PÁGINA 2 — EQUIPOS POR AULA
+# PÁGINA 2 — EQUIPOS POR AULA (con todos los filtros)
 # ============================================================================
 def pagina_productos():
     _banner(); _titulo("🗂️","Equipos por Aula")
     if not _check_revision(): return
+    conn=get_db(); df=pd.read_sql("SELECT * FROM ordenadores",conn); conn.close()
+    if df.empty: st.info("No hay datos cargados."); return
 
-    conn=get_db()
-    df=pd.read_sql("SELECT * FROM ordenadores",conn)
-    conn.close()
+    # Todos los filtros
+    st.markdown("#### 🔎 Filtros")
+    fp1,fp2,fp3=st.columns(3)
+    with fp1:
+        f_aula=st.multiselect("🏫 Aula:",options=_opts(df['aula']),key="pr_aula")
+        f_proc=st.multiselect("⚙️ Procesador:",options=_opts(df['procesador']),key="pr_proc")
+        f_obs=st.multiselect("⚠️ Observaciones:",options=_opts(df['observaciones']),key="pr_obs")
+    with fp2:
+        f_ram=st.multiselect("💾 RAM:",options=_opts(df['ram']),key="pr_ram")
+        f_disco=st.multiselect("💿 Disco Duro:",options=_opts(df['disco_duro']),key="pr_disco")
+    with fp3:
+        f_pul=st.multiselect("📐 Pulgadas:",options=_opts(df['pulgadas']),key="pr_pul")
+        f_mac=st.multiselect("🔌 MAC:",options=_opts(df['mac']),key="pr_mac")
 
-    if df.empty:
-        st.info("No hay datos cargados."); return
+    # Aplicar filtros al dataframe completo
+    df_filtrado=df.copy()
+    if f_aula:  df_filtrado=df_filtrado[df_filtrado['aula'].isin(f_aula)]
+    if f_proc:  df_filtrado=df_filtrado[df_filtrado['procesador'].isin(f_proc)]
+    if f_ram:   df_filtrado=df_filtrado[df_filtrado['ram'].isin(f_ram)]
+    if f_disco: df_filtrado=df_filtrado[df_filtrado['disco_duro'].isin(f_disco)]
+    if f_pul:   df_filtrado=df_filtrado[df_filtrado['pulgadas'].isin(f_pul)]
+    if f_mac:   df_filtrado=df_filtrado[df_filtrado['mac'].isin(f_mac)]
+    if f_obs:   df_filtrado=df_filtrado[df_filtrado['observaciones'].isin(f_obs)]
 
-    fp1,fp2=st.columns(2)
-    with fp1: f_aula=st.multiselect("🏫 Filtrar por Aula:",options=_opts(df['aula']),key="pr_aula")
-    with fp2: f_proc=st.multiselect("⚙️ Filtrar por Procesador:",options=_opts(df['procesador']),key="pr_proc")
+    # Las aulas se actualizan dinámicamente según los filtros aplicados
+    aulas=sorted(df_filtrado['aula'].dropna().unique().tolist())
 
-    df_all=df.copy()
-    if f_aula: df_all=df_all[df_all['aula'].isin(f_aula)]
-    if f_proc: df_all=df_all[df_all['procesador'].isin(f_proc)]
-
-    aulas=sorted(df_all['aula'].dropna().unique().tolist())
     if not aulas:
-        st.info("No hay aulas con los filtros seleccionados."); return
+        st.info("No hay aulas que coincidan con los filtros seleccionados."); return
 
-    rename_cols={
-        'pc':'PC','mac':'MAC','procesador':'Procesador','ram':'RAM',
-        'disco_duro':'Disco Duro','numero_serie':'Nº Serie',
-        'numero_serie_pantalla':'Nº Serie Pantalla','pulgadas':'Pulgadas','observaciones':'Observaciones'
-    }
+    st.caption(f"Mostrando **{len(df_filtrado)}** ordenadores en **{len(aulas)}** aula(s)")
+    st.markdown("---")
+
+    rename={'pc':'PC','mac':'MAC','procesador':'Procesador','ram':'RAM',
+            'disco_duro':'Disco Duro','numero_serie':'Nº Serie',
+            'numero_serie_pantalla':'Nº Serie Pantalla','pulgadas':'Pulgadas','observaciones':'Observaciones'}
 
     for aula in aulas:
-        gdf=df_all[df_all['aula']==aula].copy()
-        cols_mostrar=[c for c in rename_cols.keys() if c in gdf.columns]
-        df_show=gdf[cols_mostrar].rename(columns=rename_cols)
-        with st.expander(f"🏫 {aula} — {len(gdf)} ordenadores"):
+        gdf=df_filtrado[df_filtrado['aula']==aula].copy()
+        cols=[c for c in rename if c in gdf.columns]
+        df_show=gdf[cols].rename(columns=rename)
+        with st.expander(f"🏫 {aula} — {len(gdf)} ordenador(es)"):
             st.dataframe(df_show,use_container_width=True,hide_index=True)
             st.download_button(
                 f"📥 Exportar {aula}",
@@ -511,30 +477,41 @@ def pagina_productos():
 def pagina_entradas():
     _banner(); _titulo("📥","Entradas")
     if not _check_revision(): return
-
     conn=get_db()
-    df_ords=pd.read_sql("SELECT DISTINCT aula FROM ordenadores ORDER BY aula",conn)
-    df_ent=pd.read_sql("SELECT * FROM entradas ORDER BY fecha DESC, id DESC",conn)
+    df_ords=pd.read_sql("SELECT * FROM ordenadores",conn)
+    df_ent=pd.read_sql("SELECT * FROM entradas ORDER BY fecha DESC,id DESC",conn)
     conn.close()
 
-    aulas_disp=df_ords['aula'].tolist()
+    # Opciones extraídas del inventario real
+    aulas_disp=_opts(df_ords['aula'])
+    pcs_disp=_opts(df_ords['pc'])
+    procs_disp=_opts(df_ords['procesador'])
+    rams_disp=_opts(df_ords['ram'])
+    discos_disp=_opts(df_ords['disco_duro'])
+    puls_disp=_opts(df_ords['pulgadas'])
+    obs_disp=_opts(df_ords['observaciones'])
 
     with st.expander("➕ Registrar Nueva Entrada de Equipo",expanded=False):
         e1,e2,e3=st.columns(3)
         ne_fecha=e1.date_input("📅 Fecha",value=datetime.date.today(),key="ne_fecha")
+
+        # Selectbox con opciones del inventario + posibilidad de escribir valor nuevo
         ne_aula=e2.selectbox("🏫 Aula",options=[""]+aulas_disp,key="ne_aula")
-        ne_pc=e3.text_input("🖥️ PC (ej: Pc1)",key="ne_pc")
+        ne_pc=e3.selectbox("🖥️ PC",options=[""]+pcs_disp,key="ne_pc")
+
         e4,e5,e6=st.columns(3)
-        ne_mac=e4.text_input("🔌 MAC",key="ne_mac")
-        ne_proc=e5.text_input("⚙️ Procesador",key="ne_proc")
-        ne_ram=e6.text_input("💾 RAM",key="ne_ram")
+        ne_mac=e4.text_input("🔌 MAC (única por equipo)",key="ne_mac")
+        ne_proc=e5.selectbox("⚙️ Procesador",options=[""]+procs_disp,key="ne_proc")
+        ne_ram=e6.selectbox("💾 RAM",options=[""]+rams_disp,key="ne_ram")
+
         e7,e8,e9=st.columns(3)
-        ne_disco=e7.text_input("💿 Disco Duro",key="ne_disco")
-        ne_ns=e8.text_input("🔢 Nº Serie",key="ne_ns")
-        ne_nsp=e9.text_input("🔢 Nº Serie Pantalla",key="ne_nsp")
+        ne_disco=e7.selectbox("💿 Disco Duro",options=[""]+discos_disp,key="ne_disco")
+        ne_ns=e8.text_input("🔢 Nº Serie PC (único)",key="ne_ns")
+        ne_nsp=e9.text_input("🔢 Nº Serie Pantalla (única)",key="ne_nsp")
+
         e10,e11=st.columns(2)
-        ne_pul=e10.text_input("📐 Pulgadas",key="ne_pul")
-        ne_obs=e11.text_input("📝 Observaciones",key="ne_obs")
+        ne_pul=e10.selectbox("📐 Pulgadas",options=[""]+puls_disp,key="ne_pul")
+        ne_obs=e11.selectbox("⚠️ Observaciones",options=[""]+obs_disp,key="ne_obs")
 
         if st.button("💾 Guardar Entrada",key="btn_ent_add"):
             if ne_aula and ne_pc:
@@ -547,9 +524,9 @@ def pagina_entradas():
                     st.success("✅ Entrada registrada."); _clear_cache(); time.sleep(0.4); st.rerun()
                 except Exception as e: st.error(f"Error: {e}")
                 finally: conn.close()
-            else: st.warning("Selecciona aula e introduce el PC.")
+            else: st.warning("Selecciona aula y PC.")
 
-    # Filtros — todos los campos de la tabla
+    # Filtros
     st.markdown("#### 🔎 Filtros")
     ff1,ff2,ff3=st.columns(3)
     with ff1:
@@ -577,30 +554,25 @@ def pagina_entradas():
         dv=dv[dv['_d'].between(fe_fecha[0],fe_fecha[1])].drop('_d',axis=1)
 
     st.caption(f"Mostrando **{len(dv)}** entradas registradas")
-
-    rename_e={
-        'fecha':'Fecha','aula':'Aula','pc':'PC','mac':'MAC','procesador':'Procesador',
-        'ram':'RAM','disco_duro':'Disco Duro','numero_serie':'Nº Serie',
-        'numero_serie_pantalla':'Nº Serie Pantalla','pulgadas':'Pulgadas','observaciones':'Observaciones'
-    }
-    cols_show=[c for c in rename_e.keys() if c in dv.columns]
-    df_show=dv[cols_show].rename(columns=rename_e)
+    rename_e={'fecha':'Fecha','aula':'Aula','pc':'PC','mac':'MAC','procesador':'Procesador',
+              'ram':'RAM','disco_duro':'Disco Duro','numero_serie':'Nº Serie',
+              'numero_serie_pantalla':'Nº Serie Pantalla','pulgadas':'Pulgadas','observaciones':'Observaciones'}
+    cols=[c for c in rename_e if c in dv.columns]
+    df_show=dv[cols].rename(columns=rename_e)
     st.dataframe(df_show,use_container_width=True,hide_index=True)
 
     c1,c2=st.columns(2)
     with c1:
         if not df_show.empty:
-            st.download_button("📥 Exportar Excel",data=_to_excel(df_show),
-                file_name="entradas.xlsx",mime="application/vnd.ms-excel",key="exp_ent")
+            st.download_button("📥 Exportar Excel",data=_to_excel(df_show),file_name="entradas.xlsx",mime="application/vnd.ms-excel",key="exp_ent")
     with c2:
-        ids_sel=st.multiselect("Seleccionar IDs a eliminar:",
-            options=dv['id'].tolist() if not dv.empty else [],key="del_ent_ids")
+        ids_sel=st.multiselect("IDs a eliminar:",options=dv['id'].tolist() if not dv.empty else [],key="del_ent_ids")
         if st.button("🗑️ Eliminar seleccionados",key="del_ent"):
             if ids_sel:
                 conn=get_db()
                 for i in ids_sel: conn.execute("DELETE FROM entradas WHERE id=?",(i,))
                 conn.commit(); conn.close()
-                st.success(f"🗑️ {len(ids_sel)} entrada(s) eliminada(s)."); _clear_cache(); time.sleep(0.4); st.rerun()
+                st.success(f"🗑️ {len(ids_sel)} eliminada(s)."); _clear_cache(); time.sleep(0.4); st.rerun()
             else: st.warning("Selecciona al menos un ID.")
 
 # ============================================================================
@@ -609,24 +581,28 @@ def pagina_entradas():
 def pagina_salidas():
     _banner(); _titulo("📤","Salidas")
     if not _check_revision(): return
-
     conn=get_db()
-    df_ords=pd.read_sql("SELECT DISTINCT aula FROM ordenadores ORDER BY aula",conn)
-    df_sal=pd.read_sql("SELECT * FROM salidas ORDER BY fecha DESC, id DESC",conn)
+    df_ords=pd.read_sql("SELECT * FROM ordenadores",conn)
+    df_sal=pd.read_sql("SELECT * FROM salidas ORDER BY fecha DESC,id DESC",conn)
     conn.close()
 
-    aulas_disp=df_ords['aula'].tolist()
+    aulas_disp=_opts(df_ords['aula'])
+    pcs_disp=_opts(df_ords['pc'])
+    macs_disp=_opts(df_ords['mac'])
+    obs_disp=_opts(df_ords['observaciones'])
     motivos=["Reparación","Sustitución","Baja definitiva","Préstamo","Otro"]
 
     with st.expander("➕ Registrar Nueva Salida de Equipo",expanded=False):
         s1,s2,s3=st.columns(3)
         ns_fecha=s1.date_input("📅 Fecha",value=datetime.date.today(),key="ns_fecha")
         ns_aula=s2.selectbox("🏫 Aula",options=[""]+aulas_disp,key="ns_aula")
-        ns_pc=s3.text_input("🖥️ PC (ej: Pc1)",key="ns_pc")
+        ns_pc=s3.selectbox("🖥️ PC",options=[""]+pcs_disp,key="ns_pc")
+
         s4,s5=st.columns(2)
-        ns_mac=s4.text_input("🔌 MAC del equipo",key="ns_mac")
+        ns_mac=s4.text_input("🔌 MAC del equipo (única)",key="ns_mac")
         ns_motivo=s5.selectbox("📋 Motivo",options=[""]+motivos,key="ns_motivo")
-        ns_obs=st.text_input("📝 Observaciones",key="ns_obs")
+
+        ns_obs=st.selectbox("⚠️ Observaciones",options=[""]+obs_disp,key="ns_obs")
 
         if st.button("💾 Guardar Salida",key="btn_sal_add"):
             if ns_aula and ns_pc:
@@ -639,9 +615,9 @@ def pagina_salidas():
                     st.success("✅ Salida registrada."); _clear_cache(); time.sleep(0.4); st.rerun()
                 except Exception as e: st.error(f"Error: {e}")
                 finally: conn.close()
-            else: st.warning("Selecciona aula e introduce el PC.")
+            else: st.warning("Selecciona aula y PC.")
 
-    # Filtros — todos los campos de la tabla
+    # Filtros
     st.markdown("#### 🔎 Filtros")
     sf1,sf2,sf3=st.columns(3)
     with sf1:
@@ -665,29 +641,23 @@ def pagina_salidas():
         dv=dv[dv['_d'].between(fs_fecha[0],fs_fecha[1])].drop('_d',axis=1)
 
     st.caption(f"Mostrando **{len(dv)}** salidas registradas")
-
-    rename_s={
-        'fecha':'Fecha','aula':'Aula','pc':'PC','mac':'MAC',
-        'motivo':'Motivo','observaciones':'Observaciones'
-    }
-    cols_show=[c for c in rename_s.keys() if c in dv.columns]
-    df_show=dv[cols_show].rename(columns=rename_s)
+    rename_s={'fecha':'Fecha','aula':'Aula','pc':'PC','mac':'MAC','motivo':'Motivo','observaciones':'Observaciones'}
+    cols=[c for c in rename_s if c in dv.columns]
+    df_show=dv[cols].rename(columns=rename_s)
     st.dataframe(df_show,use_container_width=True,hide_index=True)
 
     c1,c2=st.columns(2)
     with c1:
         if not df_show.empty:
-            st.download_button("📥 Exportar Excel",data=_to_excel(df_show),
-                file_name="salidas.xlsx",mime="application/vnd.ms-excel",key="exp_sal")
+            st.download_button("📥 Exportar Excel",data=_to_excel(df_show),file_name="salidas.xlsx",mime="application/vnd.ms-excel",key="exp_sal")
     with c2:
-        ids_sel=st.multiselect("Seleccionar IDs a eliminar:",
-            options=dv['id'].tolist() if not dv.empty else [],key="del_sal_ids")
+        ids_sel=st.multiselect("IDs a eliminar:",options=dv['id'].tolist() if not dv.empty else [],key="del_sal_ids")
         if st.button("🗑️ Eliminar seleccionados",key="del_sal"):
             if ids_sel:
                 conn=get_db()
                 for i in ids_sel: conn.execute("DELETE FROM salidas WHERE id=?",(i,))
                 conn.commit(); conn.close()
-                st.success(f"🗑️ {len(ids_sel)} salida(s) eliminada(s)."); _clear_cache(); time.sleep(0.4); st.rerun()
+                st.success(f"🗑️ {len(ids_sel)} eliminada(s)."); _clear_cache(); time.sleep(0.4); st.rerun()
             else: st.warning("Selecciona al menos un ID.")
 
 # ============================================================================
@@ -699,7 +669,7 @@ def pagina_configuracion():
 
     with tab_rev:
         st.markdown("### 📁 Revisiones guardadas")
-        st.markdown("Sube el archivo **XLSX** del inventario. Los archivos se guardan permanentemente en disco.")
+        st.markdown("Los archivos se guardan permanentemente en disco y no se borran salvo que lo indiques.")
         archivos_subidos=st.file_uploader("📎 Arrastra aquí tu archivo",type=["pdf","csv","xlsx"],accept_multiple_files=True,key="rev_uploader")
         col_nombre,col_btn=st.columns([3,1])
         with col_nombre:
@@ -714,7 +684,6 @@ def pagina_configuracion():
                     crear_revision(nombre_rev.strip(),pares)
                     st.success(f"✅ Revisión **{nombre_rev}** guardada y activada.")
                     _clear_cache(); st.rerun()
-
         st.markdown("---")
         revisiones=listar_revisiones()
         if not revisiones:
@@ -722,15 +691,14 @@ def pagina_configuracion():
         else:
             st.markdown(f"**{len(revisiones)} revisión(es) guardada(s):**")
             for carpeta in revisiones:
-                meta=leer_meta(carpeta)
-                archivos=archivos_de_revision(carpeta)
+                meta=leer_meta(carpeta); archivos=archivos_de_revision(carpeta)
                 es_activa=st.session_state.revision_activa==carpeta
-                clase_card="revision-card-activa" if es_activa else "revision-card"
+                clase="revision-card-activa" if es_activa else "revision-card"
                 etiqueta=" &nbsp;✅ <b>ACTIVA</b>" if es_activa else ""
                 st.markdown(f"""
-                <div class="{clase_card}">
+                <div class="{clase}">
                     <div class="revision-nombre">📁 {meta['nombre']}{etiqueta}</div>
-                    <div class="revision-meta">🕐 Creada: {meta['creada']} &nbsp;|&nbsp; 📄 {len(archivos)} archivo(s)</div>
+                    <div class="revision-meta">🕐 {meta['creada']} &nbsp;|&nbsp; 📄 {len(archivos)} archivo(s)</div>
                 </div>""",unsafe_allow_html=True)
                 c1,c2,c3,c4,c5=st.columns([2,1,1,1,1])
                 with c1:
@@ -740,7 +708,7 @@ def pagina_configuracion():
                         if st.button("▶️ Activar",key=f"act_{carpeta.name}",use_container_width=True):
                             if cargar_revision(carpeta):
                                 st.session_state.revision_activa=carpeta
-                                st.success(f"✅ Activada."); _clear_cache(); time.sleep(0.4); st.rerun()
+                                st.success("✅ Activada."); _clear_cache(); time.sleep(0.4); st.rerun()
                     else:
                         st.markdown("<span style='color:#7fff00;font-size:0.85rem;font-weight:700;'>✅ Activa</span>",unsafe_allow_html=True)
                 with c3:
@@ -750,7 +718,7 @@ def pagina_configuracion():
                         if nuevo_nom.strip(): renombrar_revision(carpeta,nuevo_nom.strip()); st.success("✅ Renombrada."); st.rerun()
                         else: st.warning("Escribe el nuevo nombre.")
                 with c5:
-                    if st.button("🗑️",key=f"btn_del_{carpeta.name}",help="Eliminar permanentemente"):
+                    if st.button("🗑️",key=f"btn_del_{carpeta.name}",help="Eliminar"):
                         eliminar_revision(carpeta); st.success("🗑️ Eliminada."); st.rerun()
                 st.markdown("<div style='margin-bottom:0.5rem'></div>",unsafe_allow_html=True)
 
@@ -844,11 +812,11 @@ def main():
                 st.success(f"✅ Guardado: {nombre_auto}"); _clear_cache(); st.rerun()
         st.markdown("---")
 
-    p_existencias=st.Page(pagina_existencias,title="Existencias",     icon="📦",default=True)
-    p_productos  =st.Page(pagina_productos,  title="Equipos por Aula",icon="🗂️")
-    p_entradas   =st.Page(pagina_entradas,   title="Entradas",        icon="📥")
-    p_salidas    =st.Page(pagina_salidas,    title="Salidas",         icon="📤")
-    p_config     =st.Page(pagina_configuracion,title="Configuración", icon="⚙️")
+    p_existencias=st.Page(pagina_existencias,  title="Existencias",     icon="📦",default=True)
+    p_productos  =st.Page(pagina_productos,    title="Equipos por Aula",icon="🗂️")
+    p_entradas   =st.Page(pagina_entradas,     title="Entradas",        icon="📥")
+    p_salidas    =st.Page(pagina_salidas,      title="Salidas",         icon="📤")
+    p_config     =st.Page(pagina_configuracion,title="Configuración",   icon="⚙️")
 
     pg=st.navigation({
         f"{APP_NAME}":[p_existencias,p_productos,p_entradas,p_salidas],
